@@ -6,29 +6,142 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
+const allowedStatuses = ["To Do", "In Progress", "Done"] as const;
+const allowedPriorities = ["Low", "Medium", "High"] as const;
+
 export async function PATCH(
   request: Request,
   context: RouteContext
 ) {
   try {
     const { id } = await context.params;
-    const body = await request.json();
-
-    const allowedStatuses = ["To Do", "In Progress", "Done"];
+    const body: unknown = await request.json();
 
     if (
-      typeof body.status !== "string" ||
-      !allowedStatuses.includes(body.status)
+      typeof body !== "object" ||
+      body === null ||
+      Array.isArray(body)
     ) {
       return NextResponse.json(
-        { error: "Invalid task status" },
+        { error: "Invalid request body" },
+        { status: 400 }
+      );
+    }
+
+    const input = body as Record<string, unknown>;
+    const data: {
+      title?: string;
+      description?: string | null;
+      priority?: string;
+      assignee?: string;
+      status?: string;
+    } = {};
+
+    if ("title" in input) {
+      if (
+        typeof input.title !== "string" ||
+        !input.title.trim()
+      ) {
+        return NextResponse.json(
+          { error: "Task title is required" },
+          { status: 400 }
+        );
+      }
+
+      if (input.title.trim().length > 200) {
+        return NextResponse.json(
+          { error: "Task title must be 200 characters or less" },
+          { status: 400 }
+        );
+      }
+
+      data.title = input.title.trim();
+    }
+
+    if ("description" in input) {
+      if (
+        input.description !== null &&
+        typeof input.description !== "string"
+      ) {
+        return NextResponse.json(
+          { error: "Invalid task description" },
+          { status: 400 }
+        );
+      }
+
+      if (
+        typeof input.description === "string" &&
+        input.description.length > 2000
+      ) {
+        return NextResponse.json(
+          { error: "Description must be 2000 characters or less" },
+          { status: 400 }
+        );
+      }
+
+      data.description =
+        typeof input.description === "string"
+          ? input.description.trim() || null
+          : null;
+    }
+
+    if ("priority" in input) {
+      if (
+        typeof input.priority !== "string" ||
+        !allowedPriorities.includes(
+          input.priority as (typeof allowedPriorities)[number]
+        )
+      ) {
+        return NextResponse.json(
+          { error: "Invalid task priority" },
+          { status: 400 }
+        );
+      }
+
+      data.priority = input.priority;
+    }
+
+    if ("assignee" in input) {
+      if (
+        typeof input.assignee !== "string" ||
+        !input.assignee.trim() ||
+        input.assignee.trim().length > 50
+      ) {
+        return NextResponse.json(
+          { error: "Invalid task assignee" },
+          { status: 400 }
+        );
+      }
+
+      data.assignee = input.assignee.trim();
+    }
+
+    if ("status" in input) {
+      if (
+        typeof input.status !== "string" ||
+        !allowedStatuses.includes(
+          input.status as (typeof allowedStatuses)[number]
+        )
+      ) {
+        return NextResponse.json(
+          { error: "Invalid task status" },
+          { status: 400 }
+        );
+      }
+
+      data.status = input.status;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json(
+        { error: "No valid fields provided to update" },
         { status: 400 }
       );
     }
 
     const task = await prisma.task.update({
       where: { id },
-      data: { status: body.status },
+      data,
     });
 
     return NextResponse.json(task);
