@@ -1,6 +1,7 @@
-
 import { NextResponse } from "next/server";
+import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -14,6 +15,19 @@ export async function PATCH(
   context: RouteContext
 ) {
   try {
+    // 1. Check whether the user is logged in
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    });
+
+    if (!session) {
+      return NextResponse.json(
+        { error: "Unauthorized. Please log in." },
+        { status: 401 }
+      );
+    }
+
+    const userId = session.user.id;
     const { id } = await context.params;
     const body: unknown = await request.json();
 
@@ -29,6 +43,7 @@ export async function PATCH(
     }
 
     const input = body as Record<string, unknown>;
+
     const data: {
       title?: string;
       description?: string | null;
@@ -139,12 +154,30 @@ export async function PATCH(
       );
     }
 
-    const task = await prisma.task.update({
-      where: { id },
+    // 2. Update only a task owned by the logged-in user
+    const result = await prisma.task.updateMany({
+      where: {
+        id,
+        userId,
+      },
       data,
     });
 
-    return NextResponse.json(task);
+    if (result.count === 0) {
+      return NextResponse.json(
+        { error: "Task not found or access denied" },
+        { status: 404 }
+      );
+    }
+
+    const updatedTask = await prisma.task.findFirst({
+      where: {
+        id,
+        userId,
+      },
+    });
+
+    return NextResponse.json(updatedTask);
   } catch (error) {
     console.error("Failed to update task:", error);
 
@@ -160,11 +193,35 @@ export async function DELETE(
   context: RouteContext
 ) {
   try {
+    // 1. Check whether the user is logged in
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    });
+
+    if (!session) {
+      return NextResponse.json(
+        { error: "Unauthorized. Please log in." },
+        { status: 401 }
+      );
+    }
+
+    const userId = session.user.id;
     const { id } = await context.params;
 
-    await prisma.task.delete({
-      where: { id },
+    // 2. Delete only a task owned by the logged-in user
+    const result = await prisma.task.deleteMany({
+      where: {
+        id,
+        userId,
+      },
     });
+
+    if (result.count === 0) {
+      return NextResponse.json(
+        { error: "Task not found or access denied" },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {
