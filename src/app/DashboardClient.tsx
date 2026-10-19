@@ -5,6 +5,26 @@ import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 
 type TaskStatus = "To Do" | "In Progress" | "Done";
+
+function getLocalDateString(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatDueDate(value: string): string {
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+
+  return new Intl.DateTimeFormat("en", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(year, month - 1, day));
+}
+
 type TaskPriority = "Low" | "Medium" | "High";
 
 type Task = {
@@ -16,11 +36,20 @@ type Task = {
   status: TaskStatus;
   createdAt?: string;
   updatedAt?: string;
+  dueDate?: string | null;
 };
 
 type Column = {
   title: TaskStatus;
   tasks: Task[];
+};
+
+type Workspace = {
+  id: string;
+  name: string;
+  slug: string;
+  role?: string;
+  projects?: { id: string; name: string }[];
 };
 
 const initialColumns: Column[] = [
@@ -65,6 +94,7 @@ export default function Home() {
   const [boardColumns, setBoardColumns] = useState<Column[]>(initialColumns);
   const [taskTitle, setTaskTitle] = useState("");
   const [taskPriority, setTaskPriority] = useState<TaskPriority>("Medium");
+  const [taskDueDate, setTaskDueDate] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -75,21 +105,52 @@ export default function Home() {
   const [editPriority, setEditPriority] = useState<TaskPriority>("Medium");
   const [editAssignee, setEditAssignee] = useState("SH");
   const [editStatus, setEditStatus] = useState<TaskStatus>("To Do");
+  const [editDueDate, setEditDueDate] = useState("");
   const [editSaving, setEditSaving] = useState(false);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [workspaceLoading, setWorkspaceLoading] = useState(true);
+  const [workspaceSaving, setWorkspaceSaving] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState("");
 
   const loadTasks = useCallback(async () => {
+    // Wait until a workspace has been selected
+    if (!selectedWorkspaceId) {
+      setBoardColumns(
+        statusOptions.map((status) => ({
+          title: status,
+          tasks: [],
+        })),
+      );
+      setLoading(false);
+      return;
+    }
+
     try {
+      setLoading(true);
       setErrorMessage("");
-      const response = await fetch("/api/tasks", {
-        method: "GET",
-        cache: "no-store",
-      });
-      if (!response.ok)
+
+      const response = await fetch(
+        `/api/tasks?workspaceId=${encodeURIComponent(selectedWorkspaceId)}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        },
+      );
+
+      if (!response.ok) {
         throw new Error(`Failed to load tasks (${response.status})`);
+      }
+
       const data: unknown = await response.json();
-      if (!Array.isArray(data))
+
+      if (!Array.isArray(data)) {
         throw new Error("The tasks API did not return a list.");
+      }
+
       const tasks = data as Task[];
+
       setBoardColumns(
         statusOptions.map((status) => ({
           title: status,
@@ -102,11 +163,109 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  }, [selectedWorkspaceId]);
+
+  const loadWorkspaces = useCallback(async () => {
+    try {
+      setWorkspaceError("");
+
+      const response = await fetch("/api/workspaces", {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const data: unknown = await response.json();
+
+      if (!response.ok) {
+        throw new Error(`Failed to load workspaces (${response.status})`);
+      }
+
+      if (!Array.isArray(data)) {
+        throw new Error("Workspace API did not return a list.");
+      }
+
+      const workspaceList = data as Workspace[];
+
+      setWorkspaces(workspaceList);
+
+      setSelectedWorkspaceId((currentId) => {
+        if (workspaceList.some((workspace) => workspace.id === currentId)) {
+          return currentId;
+        }
+
+        return workspaceList[0]?.id ?? "";
+      });
+    } catch (error) {
+      console.error("Load workspaces error:", error);
+      setWorkspaceError(
+        error instanceof Error ? error.message : "Failed to load workspaces.",
+      );
+    } finally {
+      setWorkspaceLoading(false);
+    }
   }, []);
+
+  async function createWorkspace(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const name = workspaceName.trim();
+
+    if (!name || workspaceSaving) return;
+
+    try {
+      setWorkspaceSaving(true);
+      setWorkspaceError("");
+
+      const response = await fetch("/api/workspaces", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name }),
+      });
+
+      const data: unknown = await response.json();
+
+      if (!response.ok) {
+        const message =
+          typeof data === "object" &&
+          data !== null &&
+          "error" in data &&
+          typeof data.error === "string"
+            ? data.error
+            : `Failed to create workspace (${response.status})`;
+
+        throw new Error(message);
+      }
+
+      await loadWorkspaces();
+      setWorkspaceName("");
+
+      if (
+        typeof data === "object" &&
+        data !== null &&
+        "id" in data &&
+        typeof data.id === "string"
+      ) {
+        setSelectedWorkspaceId(data.id);
+      }
+    } catch (error) {
+      console.error("Create workspace error:", error);
+      setWorkspaceError(
+        error instanceof Error ? error.message : "Failed to create workspace.",
+      );
+    } finally {
+      setWorkspaceSaving(false);
+    }
+  }
 
   useEffect(() => {
     void loadTasks();
   }, [loadTasks]);
+
+  useEffect(() => {
+    void loadWorkspaces();
+  }, [loadWorkspaces]);
 
   async function handleLogout() {
     if (loggingOut) return;
@@ -138,30 +297,56 @@ export default function Home() {
 
   async function addTask(event?: React.FormEvent<HTMLFormElement>) {
     event?.preventDefault();
+
     const title = taskTitle.trim();
+
+    if (!selectedWorkspaceId) {
+      setErrorMessage("Please select a workspace before adding a task.");
+      return;
+    }
+
     if (!title || saving) return;
 
     try {
       setSaving(true);
       setErrorMessage("");
+
       const response = await fetch("/api/tasks", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           title,
           priority: taskPriority,
           assignee: "SH",
           status: "To Do",
+          dueDate: taskDueDate || null,
+          workspaceId: selectedWorkspaceId,
         }),
       });
-      if (!response.ok)
-        throw new Error(`Failed to create task (${response.status})`);
+
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          result?.error ?? `Failed to create task (${response.status})`,
+        );
+      }
+
       await loadTasks();
+
       setTaskTitle("");
       setTaskPriority("Medium");
+      setTaskDueDate("");
     } catch (error) {
       console.error("Add task error:", error);
-      setErrorMessage("Failed to save the task to the database.");
+
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Failed to save the task to the database.",
+      );
     } finally {
       setSaving(false);
     }
@@ -174,6 +359,7 @@ export default function Home() {
     setEditPriority(task.priority);
     setEditAssignee(task.assignee);
     setEditStatus(task.status);
+    setEditDueDate(task.dueDate?.slice(0, 10) ?? "");
     setErrorMessage("");
   }
 
@@ -217,6 +403,7 @@ export default function Home() {
           priority: editPriority,
           assignee,
           status: editStatus,
+          dueDate: editDueDate || null,
         }),
       });
 
@@ -428,6 +615,31 @@ export default function Home() {
                 />
               </div>
 
+              <div>
+                <label
+                  htmlFor="edit-due-date"
+                  className="mb-1 block text-sm font-medium"
+                >
+                  Due Date
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    id="edit-due-date"
+                    type="date"
+                    value={editDueDate}
+                    onChange={(event) => setEditDueDate(event.target.value)}
+                    className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setEditDueDate("")}
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    Clear date
+                  </button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label
@@ -617,6 +829,63 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Workspace selector */}
+          <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-4">
+            <label
+              htmlFor="workspace-selector"
+              className="mb-2 block text-xs font-semibold uppercase tracking-wider text-white/50"
+            >
+              Your Workspace
+            </label>
+
+            {workspaceLoading ? (
+              <p className="text-sm text-white/60">Loading workspaces...</p>
+            ) : (
+              <select
+                id="workspace-selector"
+                value={selectedWorkspaceId}
+                onChange={(event) => setSelectedWorkspaceId(event.target.value)}
+                className="w-full rounded-xl border border-white/10 bg-[#17223f] px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400"
+              >
+                {workspaces.length === 0 && (
+                  <option value="">No workspaces yet</option>
+                )}
+
+                {workspaces.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {workspaceError && (
+              <p role="alert" className="mt-2 text-xs text-rose-300">
+                {workspaceError}
+              </p>
+            )}
+
+            <form onSubmit={createWorkspace} className="mt-3 space-y-2">
+              <input
+                value={workspaceName}
+                onChange={(event) => setWorkspaceName(event.target.value)}
+                placeholder="New workspace name"
+                aria-label="New workspace name"
+                maxLength={100}
+                required
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-white/35 focus:border-indigo-400"
+              />
+
+              <button
+                type="submit"
+                disabled={workspaceSaving || !workspaceName.trim()}
+                className="w-full rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-3 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {workspaceSaving ? "Creating..." : "+ Create Workspace"}
+              </button>
+            </form>
+          </div>
+
           <nav className="mt-10 space-y-1.5">
             <a
               href="#dashboard"
@@ -781,6 +1050,14 @@ export default function Home() {
                 aria-label="Task name"
                 className="min-w-0 flex-1 rounded-xl border border-slate-200/60 bg-white/70 px-3 py-2 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500/20"
               />
+              <input
+                type="date"
+                value={taskDueDate}
+                onChange={(event) => setTaskDueDate(event.target.value)}
+                aria-label="Task due date"
+                title="Optional task due date"
+                className="min-w-0 rounded-xl border border-slate-200/60 bg-white/70 px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+              />
               <select
                 value={taskPriority}
                 onChange={(event) =>
@@ -795,7 +1072,12 @@ export default function Home() {
               </select>
               <button
                 type="submit"
-                disabled={saving || !taskTitle.trim()}
+                disabled={
+                  saving ||
+                  !taskTitle.trim() ||
+                  !selectedWorkspaceId ||
+                  workspaceLoading
+                }
                 className="group relative overflow-hidden rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all hover:shadow-xl hover:shadow-indigo-500/40 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
@@ -1008,6 +1290,28 @@ export default function Home() {
                               ))}
                             </select>
 
+                            {task.dueDate && (
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <span className="text-xs text-slate-500">
+                                  Due: {formatDueDate(task.dueDate)}
+                                </span>
+
+                                {task.status !== "Done" &&
+                                  task.dueDate.slice(0, 10) < getLocalDateString() && (
+                                    <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">
+                                      Overdue
+                                    </span>
+                                  )}
+
+                                {task.status !== "Done" &&
+                                  task.dueDate.slice(0, 10) === getLocalDateString() && (
+                                    <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">
+                                      Due today
+                                    </span>
+                                  )}
+                              </div>
+                            )}
+
                             <div className="mt-4 flex items-center justify-between gap-2">
                               <span
                                 className={`rounded-full px-2.5 py-1 text-xs font-semibold ${priorityStyles[task.priority] ?? priorityStyles.Medium}`}
@@ -1040,6 +1344,7 @@ export default function Home() {
                         onClick={() => {
                           setTaskTitle("");
                           setTaskPriority("Medium");
+                          setTaskDueDate("");
                           document
                             .querySelector<HTMLInputElement>(
                               'input[aria-label="Task name"]',
