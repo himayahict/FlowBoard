@@ -138,6 +138,7 @@ export default function Home() {
   const [projectName, setProjectName] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
   const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [projectSaving, setProjectSaving] = useState(false);
   const [projectsError, setProjectsError] = useState("");
   const [projectsMessage, setProjectsMessage] = useState("");
@@ -226,12 +227,14 @@ export default function Home() {
 
   const loadProjects = useCallback(async () => {
     if (!selectedWorkspaceId) {
-      setProjects([]);
-      return;
-    }
+  setProjects([]);
+  setProjectsLoaded(false);
+  return;
+}
 
-    setProjectsLoading(true);
-    setProjectsError("");
+setProjectsLoading(true);
+setProjectsLoaded(false);
+setProjectsError("");
 
     try {
       const response = await fetch(
@@ -274,6 +277,7 @@ export default function Home() {
       );
     } finally {
       setProjectsLoading(false);
+      setProjectsLoaded(true);
     }
   }, [selectedWorkspaceId]);
 
@@ -472,10 +476,23 @@ export default function Home() {
         role: workspace.members?.[0]?.role ?? "MEMBER",
       }));
       setWorkspaces(workspaceList);
+
+      const savedWorkspaceId = localStorage.getItem(
+        "flowboard:selectedWorkspaceId",
+      );
+
       setSelectedWorkspaceId((currentId) => {
         if (workspaceList.some((workspace) => workspace.id === currentId)) {
           return currentId;
         }
+
+        if (
+          savedWorkspaceId &&
+          workspaceList.some((workspace) => workspace.id === savedWorkspaceId)
+        ) {
+          return savedWorkspaceId;
+        }
+
         return workspaceList[0]?.id ?? "";
       });
     } catch (error) {
@@ -546,6 +563,23 @@ export default function Home() {
   useEffect(() => {
     void loadProjects();
   }, [loadProjects]);
+
+  useEffect(() => {
+   if (!projectsLoaded || projectsLoading || !selectedWorkspaceId) {
+  return;
+}
+    const savedProjectId = localStorage.getItem("flowboard:selectedProjectId");
+
+    if (
+      savedProjectId &&
+      projects.some((project) => project.id === savedProjectId)
+    ) {
+      setSelectedProjectId(savedProjectId);
+    } else {
+      setSelectedProjectId("");
+      localStorage.removeItem("flowboard:selectedProjectId");
+    }
+  }, [projects, projectsLoaded, projectsLoading, selectedWorkspaceId]);
 
   async function handleLogout() {
     if (loggingOut) return;
@@ -1122,8 +1156,16 @@ export default function Home() {
                 id="workspace-selector"
                 value={selectedWorkspaceId}
                 onChange={(event) => {
-                  setSelectedWorkspaceId(event.target.value);
+                  const workspaceId = event.target.value;
+
+                  setSelectedWorkspaceId(workspaceId);
                   setSelectedProjectId("");
+
+                  localStorage.setItem(
+                    "flowboard:selectedWorkspaceId",
+                    workspaceId,
+                  );
+                  localStorage.removeItem("flowboard:selectedProjectId");
                 }}
                 className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
               >
@@ -1668,7 +1710,20 @@ export default function Home() {
 
                 <select
                   value={selectedProjectId}
-                  onChange={(event) => setSelectedProjectId(event.target.value)}
+                  onChange={(event) => {
+                    const projectId = event.target.value;
+
+                    setSelectedProjectId(projectId);
+
+                    if (projectId) {
+                      localStorage.setItem(
+                        "flowboard:selectedProjectId",
+                        projectId,
+                      );
+                    } else {
+                      localStorage.removeItem("flowboard:selectedProjectId");
+                    }
+                  }}
                   aria-label="Task project"
                   title="Optional task project"
                   disabled={!selectedWorkspaceId || projectsLoading}
