@@ -8,31 +8,36 @@ datasource db {
 }
 
 model Task {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   title       String
   description String?
-  priority    String   @default("Medium")
-  assignee    String   @default("SH")
-  status      String   @default("To Do")
+  priority    String  @default("Medium")
+  assignee    String  @default("SH")
+  status      String  @default("To Do")
   userId      String?
-  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  user        User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  dueDate     DateTime?  @db.Date
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model User {
-  id            String    @id
-  name          String
-  email         String
-  emailVerified Boolean   @default(false)
-  image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  sessions      Session[]
-  accounts      Account[]
-  tasks         Task[]
-  workspaces    WorkspaceMember[]
-  ownedWorkspaces Workspace[] @relation("WorkspaceOwner")
+  id              String            @id
+  name            String
+  email           String
+  emailVerified   Boolean           @default(false)
+  image           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  sessions        Session[]
+  accounts        Account[]
+  tasks           Task[]
+  workspaces      WorkspaceMember[]
+  ownedWorkspaces Workspace[]       @relation("WorkspaceOwner")
 
   @@unique([email])
   @@map("user")
@@ -87,15 +92,16 @@ model Verification {
 }
 
 model Workspace {
-  id        String   @id @default(cuid())
+  id        String            @id @default(cuid())
   name      String
-  slug      String   @unique
+  slug      String            @unique
   ownerId   String
-  owner     User     @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  owner     User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   members   WorkspaceMember[]
   projects  Project[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  tasks     Task[]
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
 }
 
 model WorkspaceMember {
