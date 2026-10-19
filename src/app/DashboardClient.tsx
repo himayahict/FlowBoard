@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 
 type TaskStatus = "To Do" | "In Progress" | "Done";
@@ -89,7 +88,6 @@ const columnAccents: Record<
 const statusOptions: TaskStatus[] = ["To Do", "In Progress", "Done"];
 
 export default function Home() {
-  const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
   const [boardColumns, setBoardColumns] = useState<Column[]>(initialColumns);
   const [taskTitle, setTaskTitle] = useState("");
@@ -260,12 +258,12 @@ export default function Home() {
   }
 
   useEffect(() => {
-    void loadTasks();
-  }, [loadTasks]);
+  void Promise.resolve().then(() => loadTasks());
+}, [loadTasks]);
 
-  useEffect(() => {
-    void loadWorkspaces();
-  }, [loadWorkspaces]);
+useEffect(() => {
+  void Promise.resolve().then(() => loadWorkspaces());
+}, [loadWorkspaces]);
 
   async function handleLogout() {
     if (loggingOut) return;
