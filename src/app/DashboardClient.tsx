@@ -10,13 +10,11 @@ function getLocalDateString(): string {
   const year = today.getFullYear();
   const month = String(today.getMonth() + 1).padStart(2, "0");
   const day = String(today.getDate()).padStart(2, "0");
-
   return `${year}-${month}-${day}`;
 }
 
 function formatDueDate(value: string): string {
   const [year, month, day] = value.slice(0, 10).split("-").map(Number);
-
   return new Intl.DateTimeFormat("en", {
     day: "numeric",
     month: "short",
@@ -33,6 +31,7 @@ type Task = {
   priority: TaskPriority;
   assignee: string;
   status: TaskStatus;
+  projectId?: string | null;
   createdAt?: string;
   updatedAt?: string;
   dueDate?: string | null;
@@ -51,6 +50,18 @@ type Workspace = {
   projects?: { id: string; name: string }[];
 };
 
+type WorkspaceMember = {
+  id: string;
+  role: string;
+  createdAt: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    image?: string | null;
+  };
+};
+
 const initialColumns: Column[] = [
   { title: "To Do", tasks: [] },
   { title: "In Progress", tasks: [] },
@@ -58,30 +69,32 @@ const initialColumns: Column[] = [
 ];
 
 const priorityStyles: Record<TaskPriority, string> = {
-  High: "bg-gradient-to-r from-rose-500/10 to-pink-500/10 text-rose-600 ring-1 ring-rose-500/20",
-  Medium:
-    "bg-gradient-to-r from-amber-500/10 to-orange-500/10 text-amber-600 ring-1 ring-amber-500/20",
-  Low: "bg-gradient-to-r from-emerald-500/10 to-teal-500/10 text-emerald-600 ring-1 ring-emerald-500/20",
+  High: "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-100",
+  Medium: "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-100",
+  Low: "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100",
 };
 
-const columnAccents: Record<
+const columnMeta: Record<
   TaskStatus,
-  { dot: string; glow: string; bg: string }
+  { dot: string; header: string; count: string; bar: string }
 > = {
   "To Do": {
     dot: "bg-slate-400",
-    glow: "shadow-slate-400/40",
-    bg: "from-slate-50 to-white",
+    header: "text-slate-700",
+    count: "bg-slate-100 text-slate-600",
+    bar: "bg-slate-300",
   },
   "In Progress": {
-    dot: "bg-gradient-to-br from-indigo-500 to-violet-500",
-    glow: "shadow-indigo-500/40",
-    bg: "from-indigo-50/50 to-white",
+    dot: "bg-indigo-500",
+    header: "text-slate-700",
+    count: "bg-indigo-50 text-indigo-700",
+    bar: "bg-indigo-500",
   },
   Done: {
-    dot: "bg-gradient-to-br from-emerald-500 to-teal-500",
-    glow: "shadow-emerald-500/40",
-    bg: "from-emerald-50/50 to-white",
+    dot: "bg-emerald-500",
+    header: "text-slate-700",
+    count: "bg-emerald-50 text-emerald-700",
+    bar: "bg-emerald-500",
   },
 };
 
@@ -107,48 +120,59 @@ export default function Home() {
   const [editSaving, setEditSaving] = useState(false);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
+  const [selectedProjectId, setSelectedProjectId] = useState("");
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
   const [workspaceSaving, setWorkspaceSaving] = useState(false);
   const [workspaceError, setWorkspaceError] = useState("");
+  const [members, setMembers] = useState<WorkspaceMember[]>([]);
+  const [memberEmail, setMemberEmail] = useState("");
+  const [memberRole, setMemberRole] = useState<"MEMBER" | "ADMIN">("MEMBER");
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [memberSaving, setMemberSaving] = useState(false);
+  const [membersError, setMembersError] = useState("");
+  const [membersMessage, setMembersMessage] = useState("");
+  const [projects, setProjects] = useState<
+    { id: string; name: string; description: string | null }[]
+  >([]);
+  const [projectName, setProjectName] = useState("");
+  const [projectDescription, setProjectDescription] = useState("");
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectSaving, setProjectSaving] = useState(false);
+  const [projectsError, setProjectsError] = useState("");
+  const [projectsMessage, setProjectsMessage] = useState("");
 
   const loadTasks = useCallback(async () => {
-    // Wait until a workspace has been selected
     if (!selectedWorkspaceId) {
       setBoardColumns(
-        statusOptions.map((status) => ({
-          title: status,
-          tasks: [],
-        })),
+        statusOptions.map((status) => ({ title: status, tasks: [] })),
       );
       setLoading(false);
       return;
     }
-
     try {
       setLoading(true);
       setErrorMessage("");
+      const taskUrl = new URLSearchParams({
+        workspaceId: selectedWorkspaceId,
+      });
 
-      const response = await fetch(
-        `/api/tasks?workspaceId=${encodeURIComponent(selectedWorkspaceId)}`,
-        {
-          method: "GET",
-          cache: "no-store",
-        },
-      );
+      if (selectedProjectId) {
+        taskUrl.set("projectId", selectedProjectId);
+      }
 
+      const response = await fetch(`/api/tasks?${taskUrl.toString()}`, {
+        method: "GET",
+        cache: "no-store",
+      });
       if (!response.ok) {
         throw new Error(`Failed to load tasks (${response.status})`);
       }
-
       const data: unknown = await response.json();
-
       if (!Array.isArray(data)) {
         throw new Error("The tasks API did not return a list.");
       }
-
       const tasks = data as Task[];
-
       setBoardColumns(
         statusOptions.map((status) => ({
           title: status,
@@ -161,36 +185,297 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  }, [selectedWorkspaceId, selectedProjectId]);
+
+  const loadMembers = useCallback(async () => {
+    if (!selectedWorkspaceId) {
+      setMembers([]);
+      return;
+    }
+    try {
+      setMembersLoading(true);
+      setMembersError("");
+      setMembersMessage("");
+      const response = await fetch(
+        `/api/workspaces/${encodeURIComponent(selectedWorkspaceId)}/members`,
+        { method: "GET", cache: "no-store" },
+      );
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : "Failed to load workspace members.",
+        );
+      }
+      if (!Array.isArray(data)) {
+        throw new Error("Members API did not return a list.");
+      }
+      setMembers(data as WorkspaceMember[]);
+    } catch (error) {
+      console.error("Load workspace members error:", error);
+      setMembersError(
+        error instanceof Error
+          ? error.message
+          : "Failed to load workspace members.",
+      );
+    } finally {
+      setMembersLoading(false);
+    }
   }, [selectedWorkspaceId]);
+
+  const loadProjects = useCallback(async () => {
+    if (!selectedWorkspaceId) {
+      setProjects([]);
+      return;
+    }
+
+    setProjectsLoading(true);
+    setProjectsError("");
+
+    try {
+      const response = await fetch(
+        `/api/projects?workspaceId=${encodeURIComponent(selectedWorkspaceId)}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        },
+      );
+
+      const data: unknown = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const message =
+          typeof data === "object" &&
+          data !== null &&
+          "error" in data &&
+          typeof data.error === "string"
+            ? data.error
+            : "Failed to load projects.";
+
+        throw new Error(message);
+      }
+
+      if (!Array.isArray(data)) {
+        throw new Error("Invalid projects response.");
+      }
+
+      setProjects(
+        data as {
+          id: string;
+          name: string;
+          description: string | null;
+        }[],
+      );
+    } catch (error) {
+      console.error("Failed to load projects:", error);
+      setProjectsError(
+        error instanceof Error ? error.message : "Failed to load projects.",
+      );
+    } finally {
+      setProjectsLoading(false);
+    }
+  }, [selectedWorkspaceId]);
+
+  const createProject = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!selectedWorkspaceId || !projectName.trim()) {
+      setProjectsError("Enter a project name first.");
+      return;
+    }
+
+    if (projectSaving) return;
+
+    setProjectSaving(true);
+    setProjectsError("");
+    setProjectsMessage("");
+
+    try {
+      const response = await fetch("/api/projects", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: projectName.trim(),
+          description: projectDescription.trim() || null,
+          workspaceId: selectedWorkspaceId,
+        }),
+      });
+
+      const data: unknown = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const message =
+          typeof data === "object" &&
+          data !== null &&
+          "error" in data &&
+          typeof data.error === "string"
+            ? data.error
+            : "Failed to create project.";
+
+        throw new Error(message);
+      }
+
+      setProjectName("");
+      setProjectDescription("");
+      setProjectsMessage("Project created successfully.");
+
+      await loadProjects();
+    } catch (error) {
+      console.error("Failed to create project:", error);
+      setProjectsError(
+        error instanceof Error ? error.message : "Failed to create project.",
+      );
+    } finally {
+      setProjectSaving(false);
+    }
+  };
+
+  async function addMember(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedWorkspaceId || !memberEmail.trim() || memberSaving) return;
+    try {
+      setMemberSaving(true);
+      setMembersError("");
+      setMembersMessage("");
+      const response = await fetch(
+        `/api/workspaces/${encodeURIComponent(selectedWorkspaceId)}/members`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: memberEmail.trim(), role: memberRole }),
+        },
+      );
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : "Failed to add workspace member.",
+        );
+      }
+      setMemberEmail("");
+      setMemberRole("MEMBER");
+      setMembersMessage("Member added successfully.");
+      await loadMembers();
+    } catch (error) {
+      console.error("Add workspace member error:", error);
+      setMembersError(
+        error instanceof Error
+          ? error.message
+          : "Failed to add workspace member.",
+      );
+    } finally {
+      setMemberSaving(false);
+    }
+  }
+
+  async function changeMemberRole(
+    member: WorkspaceMember,
+    role: "MEMBER" | "ADMIN",
+  ) {
+    if (!selectedWorkspaceId || memberSaving) return;
+    try {
+      setMemberSaving(true);
+      setMembersError("");
+      setMembersMessage("");
+      const response = await fetch(
+        `/api/workspaces/${encodeURIComponent(selectedWorkspaceId)}/members`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ memberId: member.id, role }),
+        },
+      );
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : "Failed to update member role.",
+        );
+      }
+      setMembersMessage("Member role updated successfully.");
+      await loadMembers();
+    } catch (error) {
+      console.error("Change member role error:", error);
+      setMembersError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update member role.",
+      );
+    } finally {
+      setMemberSaving(false);
+    }
+  }
+
+  async function removeMember(member: WorkspaceMember) {
+    if (!selectedWorkspaceId || memberSaving) return;
+    const confirmed = window.confirm(
+      `Are you sure you want to remove ${member.user.email} from this workspace?`,
+    );
+    if (!confirmed) return;
+    try {
+      setMemberSaving(true);
+      setMembersError("");
+      setMembersMessage("");
+      const response = await fetch(
+        `/api/workspaces/${encodeURIComponent(selectedWorkspaceId)}/members`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ memberId: member.id }),
+        },
+      );
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : "Failed to remove workspace member.",
+        );
+      }
+      setMembersMessage("Member removed successfully.");
+      await loadMembers();
+    } catch (error) {
+      console.error("Remove workspace member error:", error);
+      setMembersError(
+        error instanceof Error
+          ? error.message
+          : "Failed to remove workspace member.",
+      );
+    } finally {
+      setMemberSaving(false);
+    }
+  }
 
   const loadWorkspaces = useCallback(async () => {
     try {
       setWorkspaceError("");
-
       const response = await fetch("/api/workspaces", {
         method: "GET",
         cache: "no-store",
       });
-
       const data: unknown = await response.json();
-
       if (!response.ok) {
         throw new Error(`Failed to load workspaces (${response.status})`);
       }
-
       if (!Array.isArray(data)) {
         throw new Error("Workspace API did not return a list.");
       }
-
-      const workspaceList = data as Workspace[];
-
+      const workspaceList = (
+        data as Array<Workspace & { members?: { role: string }[] }>
+      ).map((workspace) => ({
+        ...workspace,
+        role: workspace.members?.[0]?.role ?? "MEMBER",
+      }));
       setWorkspaces(workspaceList);
-
       setSelectedWorkspaceId((currentId) => {
         if (workspaceList.some((workspace) => workspace.id === currentId)) {
           return currentId;
         }
-
         return workspaceList[0]?.id ?? "";
       });
     } catch (error) {
@@ -205,25 +490,17 @@ export default function Home() {
 
   async function createWorkspace(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
     const name = workspaceName.trim();
-
     if (!name || workspaceSaving) return;
-
     try {
       setWorkspaceSaving(true);
       setWorkspaceError("");
-
       const response = await fetch("/api/workspaces", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
-
       const data: unknown = await response.json();
-
       if (!response.ok) {
         const message =
           typeof data === "object" &&
@@ -232,13 +509,10 @@ export default function Home() {
           typeof data.error === "string"
             ? data.error
             : `Failed to create workspace (${response.status})`;
-
         throw new Error(message);
       }
-
       await loadWorkspaces();
       setWorkspaceName("");
-
       if (
         typeof data === "object" &&
         data !== null &&
@@ -258,62 +532,56 @@ export default function Home() {
   }
 
   useEffect(() => {
-  void Promise.resolve().then(() => loadTasks());
-}, [loadTasks]);
+    void Promise.resolve().then(() => loadTasks());
+  }, [loadTasks]);
 
-useEffect(() => {
-  void Promise.resolve().then(() => loadWorkspaces());
-}, [loadWorkspaces]);
+  useEffect(() => {
+    void Promise.resolve().then(() => loadWorkspaces());
+  }, [loadWorkspaces]);
+
+  useEffect(() => {
+    void Promise.resolve().then(() => loadMembers());
+  }, [loadMembers]);
+
+  useEffect(() => {
+    void loadProjects();
+  }, [loadProjects]);
 
   async function handleLogout() {
     if (loggingOut) return;
-
     setLoggingOut(true);
     setErrorMessage("");
-
     try {
       const result = await authClient.signOut();
-
       if (result.error) {
         throw new Error(result.error.message || "Logout failed.");
       }
-
-      // Reload the app after the session is cleared.
       window.location.replace("/login");
     } catch (error) {
       console.error("Logout error:", error);
-
       setErrorMessage(
         error instanceof Error
           ? error.message
           : "Logout failed. Please try again.",
       );
-
       setLoggingOut(false);
     }
   }
 
   async function addTask(event?: React.FormEvent<HTMLFormElement>) {
     event?.preventDefault();
-
     const title = taskTitle.trim();
-
     if (!selectedWorkspaceId) {
       setErrorMessage("Please select a workspace before adding a task.");
       return;
     }
-
     if (!title || saving) return;
-
     try {
       setSaving(true);
       setErrorMessage("");
-
       const response = await fetch("/api/tasks", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title,
           priority: taskPriority,
@@ -321,25 +589,21 @@ useEffect(() => {
           status: "To Do",
           dueDate: taskDueDate || null,
           workspaceId: selectedWorkspaceId,
+          projectId: selectedProjectId || null,
         }),
       });
-
       const result = await response.json().catch(() => null);
-
       if (!response.ok) {
         throw new Error(
           result?.error ?? `Failed to create task (${response.status})`,
         );
       }
-
       await loadTasks();
-
       setTaskTitle("");
       setTaskPriority("Medium");
       setTaskDueDate("");
     } catch (error) {
       console.error("Add task error:", error);
-
       setErrorMessage(
         error instanceof Error
           ? error.message
@@ -370,31 +634,23 @@ useEffect(() => {
 
   async function saveEditedTask(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
     if (!editingTask || editSaving) return;
-
     const title = editTitle.trim();
     const assignee = editAssignee.trim();
-
     if (!title) {
       setErrorMessage("Task title is required.");
       return;
     }
-
     if (!assignee) {
       setErrorMessage("Assignee is required.");
       return;
     }
-
     try {
       setEditSaving(true);
       setErrorMessage("");
-
       const response = await fetch(`/api/tasks/${editingTask.id}`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title,
           description: editDescription.trim() || null,
@@ -404,18 +660,14 @@ useEffect(() => {
           dueDate: editDueDate || null,
         }),
       });
-
       const result = await response.json().catch(() => null);
-
       if (!response.ok) {
         throw new Error(result?.error ?? "Failed to update task.");
       }
-
       setEditingTask(null);
       await loadTasks();
     } catch (error) {
       console.error("Edit task error:", error);
-
       setErrorMessage(
         error instanceof Error ? error.message : "Task update failed.",
       );
@@ -429,7 +681,6 @@ useEffect(() => {
       .flatMap((column) => column.tasks)
       .find((task) => task.id === taskId);
     if (!currentTask || currentTask.status === newStatus) return;
-
     setBoardColumns((currentColumns) =>
       currentColumns.map((column) => ({
         ...column,
@@ -442,7 +693,6 @@ useEffect(() => {
             : column.tasks.filter((t) => t.id !== taskId),
       })),
     );
-
     try {
       setErrorMessage("");
       const response = await fetch(`/api/tasks/${taskId}`, {
@@ -465,17 +715,14 @@ useEffect(() => {
       .flatMap((column) => column.tasks)
       .find((task) => task.id === taskId);
     if (!selectedTask) return;
-
     const confirmed = window.confirm(`Delete "${selectedTask.title}"?`);
     if (!confirmed) return;
-
     setBoardColumns((currentColumns) =>
       currentColumns.map((column) => ({
         ...column,
         tasks: column.tasks.filter((task) => task.id !== taskId),
       })),
     );
-
     try {
       setErrorMessage("");
       const response = await fetch(`/api/tasks/${taskId}`, {
@@ -496,94 +743,142 @@ useEffect(() => {
     boardColumns.find((c) => c.title === "In Progress")?.tasks.length ?? 0;
   const completedTasks =
     boardColumns.find((c) => c.title === "Done")?.tasks.length ?? 0;
+  const completionRate =
+    totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100);
 
   const stats = [
     {
       label: "Total Tasks",
       value: totalTasks,
-      accent: "from-indigo-500 to-violet-500",
-      ring: "ring-indigo-500/10",
+      tone: "text-indigo-600",
+      bg: "bg-indigo-50",
+      ring: "ring-indigo-100",
       icon: (
         <path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
       ),
-      delay: "0s",
     },
     {
       label: "In Progress",
       value: inProgressTasks,
-      accent: "from-amber-400 to-orange-500",
-      ring: "ring-amber-500/10",
+      tone: "text-amber-600",
+      bg: "bg-amber-50",
+      ring: "ring-amber-100",
       icon: (
         <>
           <circle cx="12" cy="12" r="10" />
           <path d="M12 6v6l4 2" />
         </>
       ),
-      delay: "0.05s",
     },
     {
       label: "Completed",
       value: completedTasks,
-      accent: "from-emerald-400 to-teal-500",
-      ring: "ring-emerald-500/10",
+      tone: "text-emerald-600",
+      bg: "bg-emerald-50",
+      ring: "ring-emerald-100",
       icon: (
         <>
           <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
           <path d="M22 4L12 14.01l-3-3" />
         </>
       ),
-      delay: "0.1s",
     },
     {
       label: "Team Members",
-      value: 3,
-      accent: "from-fuchsia-500 to-pink-500",
-      ring: "ring-fuchsia-500/10",
+      value: members.length,
+      tone: "text-fuchsia-600",
+      bg: "bg-fuchsia-50",
+      ring: "ring-fuchsia-100",
       icon: (
         <>
           <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
           <circle cx="9" cy="7" r="4" />
         </>
       ),
-      delay: "0.15s",
     },
   ];
 
   return (
-    <main className="relative min-h-screen bg-[#f6f7fb] text-slate-800 antialiased">
-      {/* Ambient background mesh */}
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 -left-40 size-[500px] rounded-full bg-indigo-400/20 blur-[120px]" />
-        <div className="absolute top-1/3 -right-40 size-[500px] rounded-full bg-fuchsia-400/15 blur-[120px]" />
-        <div className="absolute bottom-0 left-1/3 size-[400px] rounded-full bg-cyan-400/15 blur-[120px]" />
-      </div>
+    <main className="relative min-h-screen bg-slate-50 text-slate-800 antialiased">
+      <style jsx global>{`
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(6px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .animate-fade-in {
+          animation: fadeIn 0.3s ease-out both;
+        }
+        .scrollbar-thin::-webkit-scrollbar {
+          width: 6px;
+          height: 6px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-thumb {
+          background: rgba(148, 163, 184, 0.3);
+          border-radius: 999px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+          background: rgba(148, 163, 184, 0.5);
+        }
+        .scrollbar-thin::-webkit-scrollbar-track {
+          background: transparent;
+        }
+      `}</style>
 
+      {/* Edit Task Modal */}
       {editingTask && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-900/40 p-4 backdrop-blur-sm">
           <form
             onSubmit={saveEditedTask}
             role="dialog"
             aria-modal="true"
             aria-labelledby="edit-task-title"
-            className="my-auto w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"
+            className="my-auto w-full max-w-lg animate-fade-in overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-900/5"
           >
-            <h2
-              id="edit-task-title"
-              className="text-xl font-bold text-slate-900"
-            >
-              Edit Task
-            </h2>
-            <p className="mb-5 mt-1 text-sm text-slate-500">
-              Update your task details.
-            </p>
+            <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4">
+              <div>
+                <h2
+                  id="edit-task-title"
+                  className="text-base font-semibold text-slate-900"
+                >
+                  Edit task
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Update task details and save changes.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={cancelEditingTask}
+                disabled={editSaving}
+                aria-label="Close"
+                className="flex size-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  className="size-4"
+                >
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
 
-            <div className="space-y-4">
+            <div className="max-h-[70vh] space-y-4 overflow-y-auto px-6 py-5">
               <div>
                 <label
                   htmlFor="edit-title"
-                  className="mb-1 block text-sm font-medium"
+                  className="mb-1.5 block text-xs font-medium text-slate-700"
                 >
-                  Task title
+                  Title
                 </label>
                 <input
                   id="edit-title"
@@ -591,14 +886,14 @@ useEffect(() => {
                   onChange={(event) => setEditTitle(event.target.value)}
                   maxLength={200}
                   required
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-500"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
                 />
               </div>
 
               <div>
                 <label
                   htmlFor="edit-description"
-                  className="mb-1 block text-sm font-medium"
+                  className="mb-1.5 block text-xs font-medium text-slate-700"
                 >
                   Description
                 </label>
@@ -608,7 +903,7 @@ useEffect(() => {
                   onChange={(event) => setEditDescription(event.target.value)}
                   maxLength={2000}
                   rows={3}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-500"
+                  className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
                   placeholder="Optional description"
                 />
               </div>
@@ -616,24 +911,24 @@ useEffect(() => {
               <div>
                 <label
                   htmlFor="edit-due-date"
-                  className="mb-1 block text-sm font-medium"
+                  className="mb-1.5 block text-xs font-medium text-slate-700"
                 >
-                  Due Date
+                  Due date
                 </label>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex gap-2">
                   <input
                     id="edit-due-date"
                     type="date"
                     value={editDueDate}
                     onChange={(event) => setEditDueDate(event.target.value)}
-                    className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-500"
+                    className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
                   />
                   <button
                     type="button"
                     onClick={() => setEditDueDate("")}
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
                   >
-                    Clear date
+                    Clear
                   </button>
                 </div>
               </div>
@@ -642,7 +937,7 @@ useEffect(() => {
                 <div>
                   <label
                     htmlFor="edit-priority"
-                    className="mb-1 block text-sm font-medium"
+                    className="mb-1.5 block text-xs font-medium text-slate-700"
                   >
                     Priority
                   </label>
@@ -652,7 +947,7 @@ useEffect(() => {
                     onChange={(event) =>
                       setEditPriority(event.target.value as TaskPriority)
                     }
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
                   >
                     <option value="Low">Low</option>
                     <option value="Medium">Medium</option>
@@ -663,7 +958,7 @@ useEffect(() => {
                 <div>
                   <label
                     htmlFor="edit-status"
-                    className="mb-1 block text-sm font-medium"
+                    className="mb-1.5 block text-xs font-medium text-slate-700"
                   >
                     Status
                   </label>
@@ -673,7 +968,7 @@ useEffect(() => {
                     onChange={(event) =>
                       setEditStatus(event.target.value as TaskStatus)
                     }
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
                   >
                     <option value="To Do">To Do</option>
                     <option value="In Progress">In Progress</option>
@@ -685,7 +980,7 @@ useEffect(() => {
               <div>
                 <label
                   htmlFor="edit-assignee"
-                  className="mb-1 block text-sm font-medium"
+                  className="mb-1.5 block text-xs font-medium text-slate-700"
                 >
                   Assignee
                 </label>
@@ -695,113 +990,47 @@ useEffect(() => {
                   onChange={(event) => setEditAssignee(event.target.value)}
                   maxLength={50}
                   required
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-500"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
                 />
               </div>
+
+              {errorMessage && (
+                <p
+                  role="alert"
+                  className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 ring-1 ring-inset ring-rose-100"
+                >
+                  {errorMessage}
+                </p>
+              )}
             </div>
 
-            {errorMessage && (
-              <p role="alert" className="mt-4 text-sm text-rose-600">
-                {errorMessage}
-              </p>
-            )}
-
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
               <button
                 type="button"
                 onClick={cancelEditingTask}
                 disabled={editSaving}
-                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
                 Cancel
               </button>
-
               <button
                 type="submit"
                 disabled={editSaving}
-                className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-600/20 transition hover:bg-indigo-700 disabled:opacity-50"
               >
-                {editSaving ? "Saving..." : "Save Changes"}
+                {editSaving ? "Saving..." : "Save changes"}
               </button>
             </div>
           </form>
         </div>
       )}
 
-      <style jsx global>{`
-        @keyframes fadeInUp {
-          from {
-            opacity: 0;
-            transform: translateY(12px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        @keyframes slideInLeft {
-          from {
-            opacity: 0;
-            transform: translateX(-16px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
-        }
-        @keyframes pulseSoft {
-          0%,
-          100% {
-            opacity: 1;
-          }
-          50% {
-            opacity: 0.5;
-          }
-        }
-        @keyframes shimmer {
-          0% {
-            background-position: -200% 0;
-          }
-          100% {
-            background-position: 200% 0;
-          }
-        }
-        .animate-fade-in-up {
-          animation: fadeInUp 0.5s ease-out both;
-        }
-        .animate-slide-in-left {
-          animation: slideInLeft 0.4s ease-out both;
-        }
-        .animate-pulse-soft {
-          animation: pulseSoft 2s ease-in-out infinite;
-        }
-        .glass {
-          background: rgba(255, 255, 255, 0.7);
-          backdrop-filter: blur(20px) saturate(180%);
-          -webkit-backdrop-filter: blur(20px) saturate(180%);
-        }
-        .shimmer-text {
-          background: linear-gradient(
-            90deg,
-            #6366f1,
-            #a855f7,
-            #ec4899,
-            #6366f1
-          );
-          background-size: 200% auto;
-          -webkit-background-clip: text;
-          background-clip: text;
-          -webkit-text-fill-color: transparent;
-          animation: shimmer 4s linear infinite;
-        }
-      `}</style>
-
-      <div className="relative flex min-h-screen">
-        {/* Sidebar */}
-        <aside className="hidden w-64 shrink-0 border-r border-white/10 bg-gradient-to-b from-[#0f172a] via-[#111c3a] to-[#0f172a] p-6 text-white shadow-2xl shadow-indigo-900/20 md:block">
-          <div className="flex items-center gap-3 animate-slide-in-left">
-            <div className="relative flex size-11 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-white shadow-lg shadow-indigo-500/40">
-              <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/20 to-transparent" />
+      <div className="flex h-screen overflow-hidden">
+        {/* SIDEBAR — LIGHT THEME */}
+        <aside className="scrollbar-thin hidden w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200/80 bg-white px-3 py-4 md:flex">
+          {/* Brand */}
+          <div className="flex items-center gap-2.5 px-2">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-md shadow-indigo-500/25">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -809,7 +1038,7 @@ useEffect(() => {
                 strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className="relative size-5"
+                className="size-4"
               >
                 <rect x="3" y="3" width="7" height="9" rx="1.5" />
                 <rect x="14" y="3" width="7" height="5" rx="1.5" />
@@ -818,37 +1047,89 @@ useEffect(() => {
               </svg>
             </div>
             <div>
-              <h1 className="text-lg font-bold tracking-tight">
-                Flow<span className="shimmer-text">Board</span>
+              <h1 className="text-sm font-semibold tracking-tight text-slate-900">
+                FlowBoard
               </h1>
-              <p className="text-[10px] uppercase tracking-widest text-white/40">
+              <p className="text-[10px] font-medium uppercase tracking-widest text-slate-400">
                 Workspace
               </p>
             </div>
           </div>
 
+          {/* Primary nav */}
+          <nav className="mt-6 space-y-0.5">
+            <a
+              href="#dashboard"
+              aria-current="page"
+              className="flex items-center gap-2.5 rounded-lg bg-indigo-50 px-2.5 py-2 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100/70"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="size-4 text-indigo-500"
+              >
+                <rect x="3" y="3" width="7" height="9" rx="1.5" />
+                <rect x="14" y="3" width="7" height="5" rx="1.5" />
+                <rect x="14" y="12" width="7" height="9" rx="1.5" />
+                <rect x="3" y="16" width="7" height="5" rx="1.5" />
+              </svg>
+              Dashboard
+            </a>
+            <div
+              className="flex cursor-not-allowed items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-slate-400"
+              title="Coming soon"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="size-4"
+              >
+                <path d="M16 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+                <circle cx="10" cy="7" r="4" />
+                <path d="M20 21v-2a4 4 0 00-3-3.87" />
+                <path d="M16 3.13a4 4 0 010 7.75" />
+              </svg>
+              Members
+              <span className="ml-auto rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-medium text-slate-400">
+                Soon
+              </span>
+            </div>
+          </nav>
+
+          {/* Divider */}
+          <div className="my-4 h-px bg-slate-100" />
+
           {/* Workspace selector */}
-          <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
             <label
               htmlFor="workspace-selector"
-              className="mb-2 block text-xs font-semibold uppercase tracking-wider text-white/50"
+              className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-slate-500"
             >
-              Your Workspace
+              Workspace
             </label>
-
             {workspaceLoading ? (
-              <p className="text-sm text-white/60">Loading workspaces...</p>
+              <p className="text-xs text-slate-400">Loading...</p>
             ) : (
               <select
                 id="workspace-selector"
                 value={selectedWorkspaceId}
-                onChange={(event) => setSelectedWorkspaceId(event.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-[#17223f] px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400"
+                onChange={(event) => {
+                  setSelectedWorkspaceId(event.target.value);
+                  setSelectedProjectId("");
+                }}
+                className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
               >
                 {workspaces.length === 0 && (
-                  <option value="">No workspaces yet</option>
+                  <option value="">No workspaces</option>
                 )}
-
                 {workspaces.map((workspace) => (
                   <option key={workspace.id} value={workspace.id}>
                     {workspace.name}
@@ -856,14 +1137,12 @@ useEffect(() => {
                 ))}
               </select>
             )}
-
             {workspaceError && (
-              <p role="alert" className="mt-2 text-xs text-rose-300">
+              <p role="alert" className="mt-1.5 text-[11px] text-rose-600">
                 {workspaceError}
               </p>
             )}
-
-            <form onSubmit={createWorkspace} className="mt-3 space-y-2">
+            <form onSubmit={createWorkspace} className="mt-2 space-y-1.5">
               <input
                 value={workspaceName}
                 onChange={(event) => setWorkspaceName(event.target.value)}
@@ -871,105 +1150,23 @@ useEffect(() => {
                 aria-label="New workspace name"
                 maxLength={100}
                 required
-                className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-white/35 focus:border-indigo-400"
+                className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-700 outline-none placeholder:text-slate-400 transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
               />
-
               <button
                 type="submit"
                 disabled={workspaceSaving || !workspaceName.trim()}
-                className="w-full rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-3 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="w-full rounded-lg bg-slate-900 px-2.5 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {workspaceSaving ? "Creating..." : "+ Create Workspace"}
+                {workspaceSaving ? "Creating..." : "Create workspace"}
               </button>
             </form>
           </div>
 
-          <nav className="mt-10 space-y-1.5">
-            <a
-              href="#dashboard"
-              className="group relative flex items-center gap-3 overflow-hidden rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500 px-3.5 py-3 text-sm font-medium text-white shadow-lg shadow-indigo-500/30 transition-all hover:shadow-xl hover:shadow-indigo-500/50"
-            >
-              <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                className="relative size-4"
-              >
-                <rect x="3" y="3" width="7" height="9" rx="1.5" />
-                <rect x="14" y="3" width="7" height="5" rx="1.5" />
-                <rect x="14" y="12" width="7" height="9" rx="1.5" />
-                <rect x="3" y="16" width="7" height="5" rx="1.5" />
-              </svg>
-              <span className="relative">Dashboard</span>
-            </a>
-
-            {[
-              {
-                label: "Inventory",
-                icon: (
-                  <>
-                    <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
-                    <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-                    <line x1="12" y1="22.08" x2="12" y2="12" />
-                  </>
-                ),
-              },
-              {
-                label: "Orders",
-                icon: (
-                  <>
-                    <circle cx="9" cy="21" r="1" />
-                    <circle cx="20" cy="21" r="1" />
-                    <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6" />
-                  </>
-                ),
-              },
-              {
-                label: "Purchase",
-                icon: (
-                  <>
-                    <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
-                    <line x1="3" y1="6" x2="21" y2="6" />
-                    <path d="M16 10a4 4 0 01-8 0" />
-                  </>
-                ),
-              },
-              {
-                label: "Reporting",
-                icon: (
-                  <>
-                    <line x1="18" y1="20" x2="18" y2="10" />
-                    <line x1="12" y1="20" x2="12" y2="4" />
-                    <line x1="6" y1="20" x2="6" y2="14" />
-                  </>
-                ),
-              },
-              {
-                label: "Support",
-                icon: (
-                  <>
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01" />
-                  </>
-                ),
-              },
-              {
-                label: "Settings",
-                icon: (
-                  <>
-                    <circle cx="12" cy="12" r="3" />
-                    <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" />
-                  </>
-                ),
-              },
-            ].map((item) => (
-              <a
-                key={item.label}
-                href="#dashboard"
-                className="group flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-medium text-white/60 transition-all duration-200 hover:bg-white/5 hover:text-white hover:translate-x-1"
-              >
+          {/* Projects */}
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+            {/* Header */}
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
                 <svg
                   viewBox="0 0 24 24"
                   fill="none"
@@ -977,184 +1174,383 @@ useEffect(() => {
                   strokeWidth="2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className="size-4 transition-transform group-hover:scale-110"
+                  className="size-3.5 text-indigo-500"
                 >
-                  {item.icon}
+                  <rect x="3" y="3" width="18" height="18" rx="3" />
+                  <path d="M8 8h8M8 12h8M8 16h4" />
                 </svg>
-                {item.label}
-              </a>
-            ))}
-          </nav>
-
-          <div className="mt-10 rounded-2xl border border-white/10 bg-gradient-to-br from-white/10 to-white/5 p-4 backdrop-blur-sm transition hover:from-white/15 hover:to-white/10">
-            <div className="flex items-center gap-2">
-              <span className="relative flex size-2">
-                <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
+                <h3 className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                  Projects
+                </h3>
+              </div>
+              <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-inset ring-slate-200">
+                {projects.length}
               </span>
-              <p className="text-sm font-semibold text-white">Free workspace</p>
             </div>
-            <p className="mt-2 text-xs leading-relaxed text-white/50">
-              Your team workspace starts here.
-            </p>
+
+            {/* Create toggle — only for OWNER/ADMIN */}
+            {["OWNER", "ADMIN"].includes(
+              workspaces.find(
+                (workspace) => workspace.id === selectedWorkspaceId,
+              )?.role ?? "",
+            ) &&
+              (() => {
+                const isCreating = projectSaving || projectName.trim() !== "";
+                return (
+                  <form
+                    onSubmit={createProject}
+                    className="mb-3 rounded-lg border border-slate-200 bg-white p-2.5"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        className="size-3.5 shrink-0 text-slate-400"
+                      >
+                        <path d="M12 5v14M5 12h14" />
+                      </svg>
+                      <input
+                        id="projectName"
+                        type="text"
+                        value={projectName}
+                        onChange={(event) => setProjectName(event.target.value)}
+                        placeholder="New project name..."
+                        maxLength={100}
+                        required
+                        disabled={!selectedWorkspaceId || projectSaving}
+                        className="min-w-0 flex-1 bg-transparent text-xs text-slate-800 outline-none placeholder:text-slate-400 disabled:opacity-50"
+                      />
+                      <button
+                        type="submit"
+                        disabled={
+                          !selectedWorkspaceId ||
+                          !projectName.trim() ||
+                          projectSaving
+                        }
+                        className="rounded-md bg-indigo-600 px-2.5 py-1 text-[10px] font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {projectSaving ? "Creating..." : "Add"}
+                      </button>
+                    </div>
+
+                    {isCreating && (
+                      <textarea
+                        id="projectDescription"
+                        value={projectDescription}
+                        onChange={(event) =>
+                          setProjectDescription(event.target.value)
+                        }
+                        placeholder="Optional description..."
+                        maxLength={1000}
+                        rows={2}
+                        disabled={projectSaving}
+                        className="mt-2 w-full resize-none rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15 disabled:opacity-50"
+                      />
+                    )}
+                  </form>
+                );
+              })()}
+
+            {/* Messages */}
+            {projectsError && (
+              <p className="mb-2 rounded-lg bg-rose-50 px-2.5 py-1.5 text-[11px] text-rose-700 ring-1 ring-inset ring-rose-100">
+                {projectsError}
+              </p>
+            )}
+
+            {projectsMessage && (
+              <p className="mb-2 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-700 ring-1 ring-inset ring-emerald-100">
+                {projectsMessage}
+              </p>
+            )}
+
+            {/* List */}
+            {projectsLoading ? (
+              <div className="space-y-1.5">
+                {[0, 1].map((i) => (
+                  <div
+                    key={i}
+                    className="animate-pulse rounded-lg border border-slate-200 bg-white p-2.5"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="size-6 rounded-md bg-slate-200" />
+                      <div className="flex-1 space-y-1">
+                        <div className="h-2 w-2/3 rounded bg-slate-200" />
+                        <div className="h-2 w-1/2 rounded bg-slate-100" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : projects.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-slate-300 bg-white/50 px-3 py-5 text-center">
+                <div className="mx-auto mb-2 flex size-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-500 ring-1 ring-inset ring-indigo-100">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="size-4"
+                  >
+                    <rect x="3" y="3" width="18" height="18" rx="3" />
+                    <path d="M8 8h8M8 12h8M8 16h4" />
+                  </svg>
+                </div>
+                <p className="text-[11px] font-medium text-slate-600">
+                  No projects yet
+                </p>
+                <p className="mt-0.5 text-[10px] text-slate-400">
+                  Create one to get started
+                </p>
+              </div>
+            ) : (
+              <div className="scrollbar-thin max-h-56 space-y-1.5 overflow-y-auto pr-1">
+                {projects.map((project, index) => {
+                  const palettes = [
+                    "from-indigo-500 to-violet-600",
+                    "from-emerald-500 to-teal-600",
+                    "from-amber-500 to-orange-600",
+                    "from-rose-500 to-pink-600",
+                    "from-cyan-500 to-blue-600",
+                  ];
+                  const palette = palettes[index % palettes.length];
+
+                  return (
+                    <article
+                      key={project.id}
+                      className="group rounded-lg border border-slate-200 bg-white p-2.5 transition hover:border-indigo-200 hover:shadow-sm"
+                    >
+                      <div className="flex items-start gap-2">
+                        <div
+                          className={`flex size-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br ${palette} text-white shadow-sm`}
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="size-3.5"
+                          >
+                            <rect x="3" y="3" width="18" height="18" rx="3" />
+                            <path d="M8 8h8M8 12h8M8 16h4" />
+                          </svg>
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <h4 className="truncate text-xs font-semibold text-slate-800">
+                            {project.name}
+                          </h4>
+                          <p className="mt-0.5 line-clamp-2 text-[10px] leading-relaxed text-slate-500">
+                            {project.description || "No description"}
+                          </p>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          <button
-            type="button"
-            onClick={() => void handleLogout()}
-            disabled={loggingOut}
-            className="mt-6 flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-medium text-white/60 transition hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className="size-4"
-            >
-              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
-            </svg>
-
-            {loggingOut ? "Logging out..." : "Logout"}
-          </button>
-        </aside>
-
-        {/* Main content */}
-        <section id="dashboard" className="relative min-w-0 flex-1 p-5 md:p-8">
-          <header className="flex flex-wrap items-start justify-between gap-4 animate-fade-in-up">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-indigo-600 ring-1 ring-indigo-500/10 backdrop-blur">
-                  <span className="size-1.5 rounded-full bg-indigo-500 animate-pulse-soft" />
-                  Live workspace
-                </span>
-              </div>
-              <h2 className="mt-3 text-4xl font-bold tracking-tight text-slate-900">
-                Project <span className="shimmer-text">Dashboard</span>
-              </h2>
-              <p className="mt-2 text-sm text-slate-500">
-                Plan your work. Track your progress. Ship faster.
-              </p>
+          {/* Members */}
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                Members
+              </h3>
+              <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-inset ring-slate-200">
+                {members.length}
+              </span>
             </div>
 
-            <form
-              className="glass flex flex-wrap gap-2 rounded-2xl border border-white/60 p-2 shadow-xl shadow-indigo-500/5 transition-shadow hover:shadow-2xl hover:shadow-indigo-500/10"
-              onSubmit={addTask}
-            >
+            {membersLoading ? (
+              <p className="text-xs text-slate-400">Loading...</p>
+            ) : membersError ? (
+              <p className="text-xs text-rose-600">{membersError}</p>
+            ) : members.length === 0 ? (
+              <p className="text-xs text-slate-400">No members yet</p>
+            ) : (
+              <div className="scrollbar-thin max-h-44 space-y-1.5 overflow-y-auto pr-1">
+                {members.map((member) => {
+                  const currentRole = workspaces.find(
+                    (w) => w.id === selectedWorkspaceId,
+                  )?.role;
+                  const isOwner = currentRole === "OWNER";
+                  const isAdmin = currentRole === "ADMIN";
+                  const isTargetOwner = member.role === "OWNER";
+                  const canChangeRole = isOwner && !isTargetOwner;
+                  const canRemoveMember =
+                    !isTargetOwner &&
+                    (isOwner || (isAdmin && member.role === "MEMBER"));
+
+                  return (
+                    <div
+                      key={member.id}
+                      className="rounded-lg border border-slate-200 bg-white p-2"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-[10px] font-semibold text-white">
+                          {member.user.name
+                            ?.split(" ")
+                            .map((n) => n[0])
+                            .slice(0, 2)
+                            .join("")
+                            .toUpperCase() || "U"}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-medium text-slate-800">
+                            {member.user.name}
+                          </p>
+                          <p className="truncate text-[10px] text-slate-400">
+                            {member.user.email}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-1.5 flex items-center justify-between gap-1.5">
+                        <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-medium text-slate-500">
+                          {member.role}
+                        </span>
+
+                        {(canChangeRole || canRemoveMember) && (
+                          <div className="flex items-center gap-1">
+                            {canChangeRole && (
+                              <select
+                                aria-label={`Change role for ${member.user.email}`}
+                                value={member.role}
+                                disabled={memberSaving}
+                                onChange={(event) =>
+                                  changeMemberRole(
+                                    member,
+                                    event.target.value as "MEMBER" | "ADMIN",
+                                  )
+                                }
+                                className="rounded border border-slate-200 bg-white px-1.5 py-1 text-[10px] text-slate-600 outline-none focus:border-indigo-500 disabled:opacity-50"
+                              >
+                                <option value="MEMBER">Member</option>
+                                <option value="ADMIN">Admin</option>
+                              </select>
+                            )}
+                            {canRemoveMember && (
+                              <button
+                                type="button"
+                                disabled={memberSaving}
+                                onClick={() => removeMember(member)}
+                                className="rounded border border-rose-100 bg-rose-50 px-2 py-1 text-[10px] font-medium text-rose-600 hover:bg-rose-100 disabled:opacity-50"
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {membersMessage && (
+              <p className="mt-2 text-[11px] text-emerald-600">
+                {membersMessage}
+              </p>
+            )}
+
+            <form onSubmit={addMember} className="mt-2.5 space-y-1.5">
               <input
-                value={taskTitle}
-                onChange={(event) => setTaskTitle(event.target.value)}
-                placeholder="Enter task name..."
-                aria-label="Task name"
-                className="min-w-0 flex-1 rounded-xl border border-slate-200/60 bg-white/70 px-3 py-2 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500/20"
-              />
-              <input
-                type="date"
-                value={taskDueDate}
-                onChange={(event) => setTaskDueDate(event.target.value)}
-                aria-label="Task due date"
-                title="Optional task due date"
-                className="min-w-0 rounded-xl border border-slate-200/60 bg-white/70 px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                id="member-email"
+                type="email"
+                value={memberEmail}
+                onChange={(event) => setMemberEmail(event.target.value)}
+                placeholder="member@example.com"
+                aria-label="Member email"
+                required
+                className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-700 outline-none placeholder:text-slate-400 transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
               />
               <select
-                value={taskPriority}
+                aria-label="Member role"
+                value={memberRole}
                 onChange={(event) =>
-                  setTaskPriority(event.target.value as TaskPriority)
+                  setMemberRole(event.target.value as "MEMBER" | "ADMIN")
                 }
-                aria-label="Task priority"
-                className="rounded-xl border border-slate-200/60 bg-white/70 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500/20"
+                className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
               >
-                <option value="Low">Low</option>
-                <option value="Medium">Medium</option>
-                <option value="High">High</option>
+                <option value="MEMBER">Member</option>
+                <option value="ADMIN">Admin</option>
               </select>
               <button
                 type="submit"
-                disabled={
-                  saving ||
-                  !taskTitle.trim() ||
-                  !selectedWorkspaceId ||
-                  workspaceLoading
-                }
-                className="group relative overflow-hidden rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all hover:shadow-xl hover:shadow-indigo-500/40 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={memberSaving || !selectedWorkspaceId}
+                className="w-full rounded-lg bg-indigo-600 px-2.5 py-2 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
-                <span className="relative">
-                  {saving ? "Saving..." : "+ Add Task"}
-                </span>
+                {memberSaving ? "Adding..." : "+ Add member"}
               </button>
             </form>
-          </header>
-
-          {errorMessage && (
-            <div
-              role="alert"
-              className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50/80 p-3 text-sm text-rose-700 backdrop-blur"
-            >
-              <span>{errorMessage}</span>
-              <button
-                type="button"
-                onClick={() => void loadTasks()}
-                className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 font-medium hover:bg-rose-50"
-              >
-                Retry
-              </button>
-            </div>
-          )}
-
-          {/* Statistics */}
-          <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {stats.map((stat) => (
-              <div
-                key={stat.label}
-                style={{ animationDelay: stat.delay }}
-                className="animate-fade-in-up group relative overflow-hidden rounded-2xl border border-white/60 bg-white/70 p-5 shadow-lg shadow-indigo-500/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-indigo-500/10"
-              >
-                <div
-                  className={`absolute -right-6 -top-6 size-24 rounded-full bg-gradient-to-br ${stat.accent} opacity-[0.08] blur-xl transition-transform duration-500 group-hover:scale-150`}
-                />
-                <div className="relative flex items-start justify-between">
-                  <p className="text-sm font-medium text-slate-500">
-                    {stat.label}
-                  </p>
-                  <div
-                    className={`flex size-9 items-center justify-center rounded-xl bg-gradient-to-br ${stat.accent} text-white shadow-lg ring-4 ${stat.ring} transition-transform group-hover:scale-110 group-hover:rotate-3`}
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="size-4"
-                    >
-                      {stat.icon}
-                    </svg>
-                  </div>
-                </div>
-                <p className="relative mt-3 text-3xl font-bold tracking-tight text-slate-900">
-                  {stat.value}
-                </p>
-              </div>
-            ))}
           </div>
 
-          {/* Kanban board */}
-          <div
-            className="mt-10 animate-fade-in-up"
-            style={{ animationDelay: "0.2s" }}
-          >
-            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="text-xl font-semibold text-slate-900">
-                  Website Development
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Sample project board
+          {/* Footer */}
+          <div className="mt-auto pt-4">
+            <div className="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-violet-50 p-3">
+              <div className="flex items-center gap-1.5">
+                <span className="relative flex size-1.5">
+                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
+                </span>
+                <p className="text-xs font-semibold text-slate-800">
+                  Free workspace
                 </p>
               </div>
-              <div className="relative">
+              <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
+                Upgrade for more features.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleLogout()}
+              disabled={loggingOut}
+              className="mt-2 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 disabled:opacity-50"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="size-4"
+              >
+                <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
+              </svg>
+              {loggingOut ? "Logging out..." : "Logout"}
+            </button>
+          </div>
+        </aside>
+
+        {/* MAIN CONTENT */}
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          {/* Top bar */}
+          <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white/90 px-5 py-3 backdrop-blur-xl md:px-8">
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <span className="font-medium">Workspace</span>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="size-3 text-slate-300"
+              >
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+              <span className="font-semibold text-slate-800">Dashboard</span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="relative hidden sm:block">
                 <svg
                   viewBox="0 0 24 24"
                   fill="none"
@@ -1171,195 +1567,459 @@ useEffect(() => {
                   onChange={(event) => setSearchTerm(event.target.value)}
                   placeholder="Search tasks..."
                   aria-label="Search tasks"
-                  className="w-full max-w-xs rounded-xl border border-white/60 bg-white/70 py-2 pl-9 pr-4 text-sm outline-none backdrop-blur transition focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-56 rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
                 />
               </div>
-            </div>
-
-            {loading ? (
-              <div className="rounded-2xl border border-white/60 bg-white/70 p-10 text-center shadow-sm backdrop-blur-xl">
-                <div className="mx-auto size-8 animate-spin rounded-full border-2 border-indigo-500/20 border-t-indigo-500" />
-                <p className="mt-3 text-sm font-medium text-slate-500">
-                  Loading your tasks...
-                </p>
+              <div className="h-6 w-px bg-slate-200" />
+              <div className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-xs font-semibold text-white shadow-sm ring-2 ring-white">
+                SH
               </div>
-            ) : (
-              <div className="grid items-start gap-5 lg:grid-cols-3">
-                {boardColumns.map((column, colIndex) => {
-                  const visibleTasks = column.tasks.filter((task) =>
-                    task.title.toLowerCase().includes(searchTerm.toLowerCase()),
-                  );
-                  const accent = columnAccents[column.title];
+            </div>
+          </header>
 
-                  return (
+          {/* Scrollable content */}
+          <div className="scrollbar-thin flex-1 overflow-y-auto bg-slate-50/50">
+            <div className="mx-auto max-w-7xl px-5 py-6 md:px-8 md:py-8">
+              {/* Page header */}
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 rounded-full border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">
+                    <span className="size-1.5 animate-pulse rounded-full bg-indigo-500" />
+                    Live workspace
+                  </div>
+                  <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 md:text-3xl">
+                    Project Dashboard
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Plan your work. Track your progress. Ship faster.
+                  </p>
+                </div>
+
+                {/* Completion chip */}
+                <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                  <div className="relative flex size-10 items-center justify-center">
+                    <svg viewBox="0 0 36 36" className="size-10 -rotate-90">
+                      <circle
+                        cx="18"
+                        cy="18"
+                        r="15"
+                        fill="none"
+                        stroke="#e2e8f0"
+                        strokeWidth="3"
+                      />
+                      <circle
+                        cx="18"
+                        cy="18"
+                        r="15"
+                        fill="none"
+                        stroke="#4f46e5"
+                        strokeWidth="3"
+                        strokeDasharray={`${(completionRate / 100) * 94.2} 94.2`}
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <span className="absolute text-[10px] font-bold text-slate-700">
+                      {completionRate}%
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-medium text-slate-500">
+                      Completion
+                    </p>
+                    <p className="text-sm font-semibold text-slate-900">
+                      {completedTasks} of {totalTasks}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Add task form */}
+              <form
+                onSubmit={addTask}
+                className="mt-6 flex flex-wrap items-stretch gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm"
+              >
+                <div className="flex min-w-[200px] flex-1 items-center gap-2 rounded-lg border border-transparent bg-slate-50 px-3 py-2 transition focus-within:border-indigo-500 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-500/15">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    className="size-4 shrink-0 text-slate-400"
+                  >
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  <input
+                    value={taskTitle}
+                    onChange={(event) => setTaskTitle(event.target.value)}
+                    placeholder="Add a new task..."
+                    aria-label="Task name"
+                    className="min-w-0 flex-1 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
+                  />
+                </div>
+                <input
+                  type="date"
+                  value={taskDueDate}
+                  onChange={(event) => setTaskDueDate(event.target.value)}
+                  aria-label="Task due date"
+                  title="Optional task due date"
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+                />
+
+                <select
+                  value={selectedProjectId}
+                  onChange={(event) => setSelectedProjectId(event.target.value)}
+                  aria-label="Task project"
+                  title="Optional task project"
+                  disabled={!selectedWorkspaceId || projectsLoading}
+                  className="max-w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="">
+                    {projectsLoading
+                      ? "Loading projects..."
+                      : "No project (optional)"}
+                  </option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={taskPriority}
+                  onChange={(event) =>
+                    setTaskPriority(event.target.value as TaskPriority)
+                  }
+                  aria-label="Task priority"
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+                >
+                  <option value="Low">Low</option>
+                  <option value="Medium">Medium</option>
+                  <option value="High">High</option>
+                </select>
+                <button
+                  type="submit"
+                  disabled={
+                    saving ||
+                    !taskTitle.trim() ||
+                    !selectedWorkspaceId ||
+                    workspaceLoading
+                  }
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-600/20 transition hover:bg-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {saving ? "Saving..." : "Add task"}
+                </button>
+              </form>
+
+              {errorMessage && (
+                <div
+                  role="alert"
+                  className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+                >
+                  <span>{errorMessage}</span>
+                  <button
+                    type="button"
+                    onClick={() => void loadTasks()}
+                    className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-medium hover:bg-rose-50"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+
+              {/* Stats */}
+              <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {stats.map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="animate-fade-in flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow-md"
+                  >
                     <div
-                      key={column.title}
-                      style={{ animationDelay: `${0.1 * colIndex}s` }}
-                      className={`animate-fade-in-up min-w-0 rounded-2xl border border-white/60 bg-gradient-to-b ${accent.bg} p-4 shadow-lg shadow-indigo-500/5 backdrop-blur-xl transition-shadow hover:shadow-xl hover:shadow-indigo-500/10`}
+                      className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${stat.bg} ${stat.tone} ring-1 ring-inset ${stat.ring}`}
                     >
-                      <div className="mb-4 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`size-2.5 rounded-full ${accent.dot} shadow-md ${accent.glow} ${column.title === "In Progress" ? "animate-pulse-soft" : ""}`}
-                          />
-                          <h4 className="font-semibold text-slate-900">
-                            {column.title}
-                          </h4>
-                        </div>
-                        <span className="rounded-lg bg-white/80 px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200/60">
-                          {column.tasks.length}
-                        </span>
-                      </div>
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="size-5"
+                      >
+                        {stat.icon}
+                      </svg>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-slate-500">
+                        {stat.label}
+                      </p>
+                      <p className="mt-0.5 text-2xl font-bold tracking-tight text-slate-900">
+                        {stat.value}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
 
-                      <div className="space-y-3">
-                        {visibleTasks.map((task, taskIndex) => (
-                          <article
-                            key={task.id}
-                            style={{
-                              animationDelay: `${0.1 * colIndex + 0.05 * taskIndex}s`,
-                            }}
-                            className="animate-fade-in-up group relative overflow-hidden rounded-xl border border-slate-100 bg-white p-4 shadow-sm shadow-slate-200/50 transition-all duration-300 hover:-translate-y-1 hover:border-indigo-200 hover:shadow-lg hover:shadow-indigo-500/10"
-                          >
-                            <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500 opacity-0 transition-opacity group-hover:opacity-100" />
-                            <div className="flex items-start justify-between gap-2">
-                              <p className="font-medium leading-6 text-slate-800">
-                                {task.title}
-                              </p>
+              {/* Board */}
+              <div className="mt-8">
+                <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900">
+                      Website Development
+                    </h3>
+                    <p className="mt-0.5 text-sm text-slate-500">
+                      {totalTasks} task{totalTasks === 1 ? "" : "s"} ·{" "}
+                      {completedTasks} completed
+                    </p>
+                  </div>
+                </div>
 
-                              <div className="flex shrink-0 items-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => startEditingTask(task)}
-                                  title="Edit task"
-                                  aria-label={`Edit ${task.title}`}
-                                  className="flex size-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-indigo-50 hover:text-indigo-600"
-                                >
-                                  <svg
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    className="size-4"
-                                  >
-                                    <path d="M12 20h9" />
-                                    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" />
-                                  </svg>
-                                </button>
-                              </div>
+                {loading ? (
+                  <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
+                    <div className="mx-auto size-8 animate-spin rounded-full border-2 border-slate-200 border-t-indigo-500" />
+                    <p className="mt-3 text-sm text-slate-500">
+                      Loading tasks...
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid items-start gap-4 lg:grid-cols-3">
+                    {boardColumns.map((column) => {
+                      const visibleTasks = column.tasks.filter((task) =>
+                        task.title
+                          .toLowerCase()
+                          .includes(searchTerm.toLowerCase()),
+                      );
+                      const meta = columnMeta[column.title];
 
-                              <button
-                                type="button"
-                                onClick={() => void deleteTask(task.id)}
-                                className="flex size-7 shrink-0 items-center justify-center rounded-lg text-slate-300 transition-all hover:bg-rose-50 hover:text-rose-500 sm:opacity-0 sm:group-hover:opacity-100"
-                                aria-label={`Delete ${task.title}`}
-                                title="Delete task"
+                      return (
+                        <div
+                          key={column.title}
+                          className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+                        >
+                          {/* Colored top bar */}
+                          <div className={`h-1 ${meta.bar}`} />
+
+                          {/* Column header */}
+                          <div className="flex items-center justify-between border-b border-slate-100 px-3.5 py-2.5">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`size-2 rounded-full ${meta.dot}`}
+                              />
+                              <h4
+                                className={`text-sm font-semibold ${meta.header}`}
                               >
-                                <svg
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  className="size-4"
-                                >
-                                  <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-                                </svg>
-                              </button>
+                                {column.title}
+                              </h4>
                             </div>
-
-                            <select
-                              value={column.title}
-                              onChange={(event) =>
-                                void moveTask(
-                                  task.id,
-                                  event.target.value as TaskStatus,
-                                )
-                              }
-                              className="mt-3 w-full rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500/20"
-                              aria-label={`Change status of ${task.title}`}
+                            <span
+                              className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${meta.count}`}
                             >
-                              {statusOptions.map((status) => (
-                                <option key={status} value={status}>
-                                  {status}
-                                </option>
-                              ))}
-                            </select>
+                              {visibleTasks.length}
+                            </span>
+                          </div>
 
-                            {task.dueDate && (
-                              <div className="mt-3 flex flex-wrap items-center gap-2">
-                                <span className="text-xs text-slate-500">
-                                  Due: {formatDueDate(task.dueDate)}
-                                </span>
+                          {/* Tasks */}
+                          <div className="space-y-2 p-2.5">
+                            {visibleTasks.map((task) => {
+                              const isOverdue =
+                                task.dueDate &&
+                                task.status !== "Done" &&
+                                task.dueDate.slice(0, 10) <
+                                  getLocalDateString();
+                              const isDueToday =
+                                task.dueDate &&
+                                task.status !== "Done" &&
+                                task.dueDate.slice(0, 10) ===
+                                  getLocalDateString();
 
-                                {task.status !== "Done" &&
-                                  task.dueDate.slice(0, 10) < getLocalDateString() && (
-                                    <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">
-                                      Overdue
-                                    </span>
+                              return (
+                                <article
+                                  key={task.id}
+                                  className="group rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <p className="text-sm font-medium leading-5 text-slate-800">
+                                      {task.title}
+                                    </p>
+                                    <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                                      <button
+                                        type="button"
+                                        onClick={() => startEditingTask(task)}
+                                        title="Edit task"
+                                        aria-label={`Edit ${task.title}`}
+                                        className="flex size-6 items-center justify-center rounded text-slate-400 hover:bg-indigo-50 hover:text-indigo-600"
+                                      >
+                                        <svg
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          className="size-3.5"
+                                        >
+                                          <path d="M12 20h9" />
+                                          <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" />
+                                        </svg>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void deleteTask(task.id)}
+                                        title="Delete task"
+                                        aria-label={`Delete ${task.title}`}
+                                        className="flex size-6 items-center justify-center rounded text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                                      >
+                                        <svg
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          className="size-3.5"
+                                        >
+                                          <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                                        </svg>
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {task.description && (
+                                    <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500">
+                                      {task.description}
+                                    </p>
                                   )}
 
-                                {task.status !== "Done" &&
-                                  task.dueDate.slice(0, 10) === getLocalDateString() && (
-                                    <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">
-                                      Due today
-                                    </span>
+                                  {task.dueDate && (
+                                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                      <span
+                                        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
+                                          isOverdue
+                                            ? "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-100"
+                                            : isDueToday
+                                              ? "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-100"
+                                              : "bg-slate-50 text-slate-600 ring-1 ring-inset ring-slate-100"
+                                        }`}
+                                      >
+                                        <svg
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2"
+                                          strokeLinecap="round"
+                                          className="size-3"
+                                        >
+                                          <rect
+                                            x="3"
+                                            y="4"
+                                            width="18"
+                                            height="18"
+                                            rx="2"
+                                          />
+                                          <path d="M16 2v4M8 2v4M3 10h18" />
+                                        </svg>
+                                        {formatDueDate(task.dueDate)}
+                                      </span>
+                                      {isOverdue && (
+                                        <span className="text-[11px] font-medium text-rose-600">
+                                          Overdue
+                                        </span>
+                                      )}
+                                      {isDueToday && (
+                                        <span className="text-[11px] font-medium text-amber-600">
+                                          Due today
+                                        </span>
+                                      )}
+                                    </div>
                                   )}
+
+                                  <div className="mt-3 flex items-center justify-between gap-2">
+                                    <span
+                                      className={`rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${priorityStyles[task.priority] ?? priorityStyles.Medium}`}
+                                    >
+                                      {task.priority}
+                                    </span>
+
+                                    <div className="flex items-center gap-1.5">
+                                      <select
+                                        value={column.title}
+                                        onChange={(event) =>
+                                          void moveTask(
+                                            task.id,
+                                            event.target.value as TaskStatus,
+                                          )
+                                        }
+                                        aria-label={`Change status of ${task.title}`}
+                                        className="rounded border border-slate-200 bg-white px-1.5 py-1 text-[11px] text-slate-600 outline-none transition hover:border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+                                      >
+                                        {statusOptions.map((status) => (
+                                          <option key={status} value={status}>
+                                            {status}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <span
+                                        title={`Assignee: ${task.assignee}`}
+                                        className="flex size-6 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-[10px] font-semibold text-white shadow-sm ring-2 ring-white"
+                                      >
+                                        {task.assignee}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </article>
+                              );
+                            })}
+
+                            {visibleTasks.length === 0 && (
+                              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 py-6 text-center">
+                                <p className="text-xs text-slate-400">
+                                  {searchTerm
+                                    ? "No matching tasks"
+                                    : "No tasks yet"}
+                                </p>
                               </div>
                             )}
-
-                            <div className="mt-4 flex items-center justify-between gap-2">
-                              <span
-                                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${priorityStyles[task.priority] ?? priorityStyles.Medium}`}
-                              >
-                                {task.priority}
-                              </span>
-                              <span
-                                title={`Assignee: ${task.assignee}`}
-                                className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-xs font-semibold text-white shadow-md shadow-indigo-500/30 ring-2 ring-white transition-transform group-hover:scale-110"
-                              >
-                                {task.assignee}
-                              </span>
-                            </div>
-                          </article>
-                        ))}
-
-                        {visibleTasks.length === 0 && (
-                          <div className="rounded-xl border border-dashed border-slate-200 bg-white/50 py-8 text-center">
-                            <p className="text-sm text-slate-400">
-                              {searchTerm
-                                ? "No matching tasks"
-                                : "No tasks yet"}
-                            </p>
                           </div>
-                        )}
-                      </div>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTaskTitle("");
-                          setTaskPriority("Medium");
-                          setTaskDueDate("");
-                          document
-                            .querySelector<HTMLInputElement>(
-                              'input[aria-label="Task name"]',
-                            )
-                            ?.focus();
-                        }}
-                        className="mt-4 w-full rounded-xl border border-dashed border-slate-300 bg-white/50 px-3 py-2.5 text-sm font-medium text-slate-500 transition-all hover:border-indigo-400 hover:bg-indigo-50/50 hover:text-indigo-600"
-                      >
-                        + Add task
-                      </button>
-                    </div>
-                  );
-                })}
+                          <div className="border-t border-slate-100 p-2.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTaskTitle("");
+                                setTaskPriority("Medium");
+                                setTaskDueDate("");
+                                document
+                                  .querySelector<HTMLInputElement>(
+                                    'input[aria-label="Task name"]',
+                                  )
+                                  ?.focus();
+                              }}
+                              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-500 transition hover:border-indigo-400 hover:bg-indigo-50/50 hover:text-indigo-600"
+                            >
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                className="size-3.5"
+                              >
+                                <path d="M12 5v14M5 12h14" />
+                              </svg>
+                              Add task
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
-        </section>
+        </div>
       </div>
     </main>
   );

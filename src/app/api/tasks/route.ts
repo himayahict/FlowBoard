@@ -1,4 +1,3 @@
-
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
@@ -49,6 +48,8 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const workspaceId = searchParams.get("workspaceId");
 
+    const projectId = searchParams.get("projectId");
+
     if (workspaceId) {
       const membership = await prisma.workspace.findFirst({
         where: {
@@ -67,8 +68,28 @@ export async function GET(request: Request) {
         );
       }
 
+      if (projectId) {
+        const project = await prisma.project.findFirst({
+          where: {
+            id: projectId,
+            workspaceId,
+          },
+          select: { id: true },
+        });
+
+        if (!project) {
+          return NextResponse.json(
+            { error: "Project not found in this workspace." },
+            { status: 404 },
+          );
+        }
+      }
+
       const tasks = await prisma.task.findMany({
-        where: { workspaceId },
+        where: {
+          workspaceId,
+          ...(projectId ? { projectId } : {}),
+        },
         orderBy: { createdAt: "desc" },
       });
 
@@ -116,11 +137,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (
-      typeof body !== "object" ||
-      body === null ||
-      Array.isArray(body)
-    ) {
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
       return NextResponse.json(
         { error: "Invalid request body." },
         { status: 400 },
@@ -129,8 +146,7 @@ export async function POST(request: Request) {
 
     const input = body as Record<string, unknown>;
 
-    const title =
-      typeof input.title === "string" ? input.title.trim() : "";
+    const title = typeof input.title === "string" ? input.title.trim() : "";
 
     if (!title) {
       return NextResponse.json(
@@ -155,8 +171,7 @@ export async function POST(request: Request) {
 
     const allowedStatuses = ["To Do", "In Progress", "Done"];
     const status =
-      typeof input.status === "string" &&
-      allowedStatuses.includes(input.status)
+      typeof input.status === "string" && allowedStatuses.includes(input.status)
         ? input.status
         : "To Do";
 
@@ -194,10 +209,7 @@ export async function POST(request: Request) {
     } catch (error) {
       return NextResponse.json(
         {
-          error:
-            error instanceof Error
-              ? error.message
-              : "Invalid due date.",
+          error: error instanceof Error ? error.message : "Invalid due date.",
         },
         { status: 400 },
       );
@@ -206,10 +218,7 @@ export async function POST(request: Request) {
     let workspaceId: string | null = null;
 
     if (input.workspaceId !== undefined && input.workspaceId !== null) {
-      if (
-        typeof input.workspaceId !== "string" ||
-        !input.workspaceId.trim()
-      ) {
+      if (typeof input.workspaceId !== "string" || !input.workspaceId.trim()) {
         return NextResponse.json(
           { error: "A valid workspace ID is required." },
           { status: 400 },
@@ -236,6 +245,43 @@ export async function POST(request: Request) {
       }
     }
 
+    let projectId: string | null = null;
+
+    if (input.projectId !== undefined && input.projectId !== null) {
+      if (typeof input.projectId !== "string" || !input.projectId.trim()) {
+        return NextResponse.json(
+          { error: "A valid project ID is required." },
+          { status: 400 },
+        );
+      }
+
+      if (!workspaceId) {
+        return NextResponse.json(
+          { error: "A workspace is required when selecting a project." },
+          { status: 400 },
+        );
+      }
+
+      projectId = input.projectId.trim();
+
+      const project = await prisma.project.findFirst({
+        where: {
+          id: projectId,
+          workspaceId,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (!project) {
+        return NextResponse.json(
+          { error: "Project not found in the selected workspace." },
+          { status: 400 },
+        );
+      }
+    }
+
     const task = await prisma.task.create({
       data: {
         title,
@@ -245,6 +291,7 @@ export async function POST(request: Request) {
         status,
         userId: session.user.id,
         workspaceId,
+        projectId,
         ...(dueDate !== undefined ? { dueDate } : {}),
       },
     });
