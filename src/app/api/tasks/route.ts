@@ -91,6 +91,11 @@ export async function GET(request: Request) {
           ...(projectId ? { projectId } : {}),
         },
         orderBy: { createdAt: "desc" },
+        include: {
+          subtasks: {
+            orderBy: { createdAt: "asc" },
+          },
+        },
       });
 
       return NextResponse.json(tasks);
@@ -100,6 +105,11 @@ export async function GET(request: Request) {
     const tasks = await prisma.task.findMany({
       where: { userId: session.user.id },
       orderBy: { createdAt: "desc" },
+      include: {
+        subtasks: {
+          orderBy: { createdAt: "asc" },
+        },
+      },
     });
 
     return NextResponse.json(tasks);
@@ -145,6 +155,31 @@ export async function POST(request: Request) {
     }
 
     const input = body as Record<string, unknown>;
+
+    const labelsInput = input.labels ?? [];
+
+    if (!Array.isArray(labelsInput)) {
+      return NextResponse.json(
+        { error: "Labels must be provided as a list." },
+        { status: 400 },
+      );
+    }
+
+    if (
+      labelsInput.length > 10 ||
+      labelsInput.some(
+        (label) => typeof label !== "string" || label.trim().length > 30,
+      )
+    ) {
+      return NextResponse.json(
+        { error: "You can add up to 10 labels, each 30 characters or less." },
+        { status: 400 },
+      );
+    }
+
+    const labels = [
+      ...new Set(labelsInput.map((label) => label.trim()).filter(Boolean)),
+    ];
 
     const title = typeof input.title === "string" ? input.title.trim() : "";
 
@@ -286,6 +321,7 @@ export async function POST(request: Request) {
       data: {
         title,
         description,
+        labels,
         priority,
         assignee,
         status,

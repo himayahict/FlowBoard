@@ -11,6 +11,7 @@ model Task {
   id          String  @id @default(cuid())
   title       String
   description String?
+  labels      String[] @default([])
   priority    String  @default("Medium")
   assignee    String  @default("SH")
   status      String  @default("To Do")
@@ -26,8 +27,21 @@ model Task {
   dueDate     DateTime?  @db.Date
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  subtasks Subtask[]
 
   @@index([projectId])
+}
+
+model Subtask {
+  id          String   @id @default(cuid())
+  title       String
+  completed   Boolean  @default(false)
+  taskId      String
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([taskId])
 }
 
 model User {

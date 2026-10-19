@@ -22,12 +22,22 @@ function formatDueDate(value: string): string {
   }).format(new Date(year, month - 1, day));
 }
 
+type Subtask = {
+  id: string;
+  title: string;
+  completed: boolean;
+  taskId: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 type TaskPriority = "Low" | "Medium" | "High";
 
 type Task = {
   id: string;
   title: string;
   description?: string | null;
+  labels?: string[];
   priority: TaskPriority;
   assignee: string;
   status: TaskStatus;
@@ -35,6 +45,7 @@ type Task = {
   createdAt?: string;
   updatedAt?: string;
   dueDate?: string | null;
+  subtasks?: Subtask[];
 };
 
 type Column = {
@@ -105,6 +116,7 @@ export default function Home() {
   const [boardColumns, setBoardColumns] = useState<Column[]>(initialColumns);
   const [taskTitle, setTaskTitle] = useState("");
   const [taskPriority, setTaskPriority] = useState<TaskPriority>("Medium");
+  const [taskLabels, setTaskLabels] = useState("");
   const [taskDueDate, setTaskDueDate] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
@@ -113,6 +125,7 @@ export default function Home() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [editLabels, setEditLabels] = useState("");
   const [editPriority, setEditPriority] = useState<TaskPriority>("Medium");
   const [editAssignee, setEditAssignee] = useState("SH");
   const [editStatus, setEditStatus] = useState<TaskStatus>("To Do");
@@ -142,6 +155,14 @@ export default function Home() {
   const [projectSaving, setProjectSaving] = useState(false);
   const [projectsError, setProjectsError] = useState("");
   const [projectsMessage, setProjectsMessage] = useState("");
+
+  const [subtaskTitles, setSubtaskTitles] = useState<Record<string, string>>(
+    {},
+  );
+
+  const [subtaskSaving, setSubtaskSaving] = useState<string | null>(null);
+
+  const [subtaskError, setSubtaskError] = useState("");
 
   const loadTasks = useCallback(async () => {
     if (!selectedWorkspaceId) {
@@ -227,14 +248,14 @@ export default function Home() {
 
   const loadProjects = useCallback(async () => {
     if (!selectedWorkspaceId) {
-  setProjects([]);
-  setProjectsLoaded(false);
-  return;
-}
+      setProjects([]);
+      setProjectsLoaded(false);
+      return;
+    }
 
-setProjectsLoading(true);
-setProjectsLoaded(false);
-setProjectsError("");
+    setProjectsLoading(true);
+    setProjectsLoaded(false);
+    setProjectsError("");
 
     try {
       const response = await fetch(
@@ -565,9 +586,9 @@ setProjectsError("");
   }, [loadProjects]);
 
   useEffect(() => {
-   if (!projectsLoaded || projectsLoading || !selectedWorkspaceId) {
-  return;
-}
+    if (!projectsLoaded || projectsLoading || !selectedWorkspaceId) {
+      return;
+    }
     const savedProjectId = localStorage.getItem("flowboard:selectedProjectId");
 
     if (
@@ -618,6 +639,14 @@ setProjectsError("");
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title,
+          labels: [
+            ...new Set(
+              taskLabels
+                .split(",")
+                .map((label) => label.trim())
+                .filter(Boolean),
+            ),
+          ],
           priority: taskPriority,
           assignee: "SH",
           status: "To Do",
@@ -636,6 +665,7 @@ setProjectsError("");
       setTaskTitle("");
       setTaskPriority("Medium");
       setTaskDueDate("");
+      setTaskLabels("");
     } catch (error) {
       console.error("Add task error:", error);
       setErrorMessage(
@@ -652,6 +682,7 @@ setProjectsError("");
     setEditingTask(task);
     setEditTitle(task.title);
     setEditDescription(task.description ?? "");
+    setEditLabels((task.labels ?? []).join(", "));
     setEditPriority(task.priority);
     setEditAssignee(task.assignee);
     setEditStatus(task.status);
@@ -688,6 +719,14 @@ setProjectsError("");
         body: JSON.stringify({
           title,
           description: editDescription.trim() || null,
+          labels: [
+            ...new Set(
+              editLabels
+                .split(",")
+                .map((label) => label.trim())
+                .filter(Boolean),
+            ),
+          ],
           priority: editPriority,
           assignee,
           status: editStatus,
@@ -741,6 +780,134 @@ setProjectsError("");
       console.error("Move task error:", error);
       setErrorMessage("Failed to save the task status.");
       await loadTasks();
+    }
+  }
+
+  async function addSubtask(taskId: string) {
+    const title = (subtaskTitles[taskId] ?? "").trim();
+
+    if (!title) {
+      setSubtaskError("Please enter a subtask title.");
+      return;
+    }
+
+    if (title.length > 200) {
+      setSubtaskError("Subtask title must be 200 characters or less.");
+      return;
+    }
+
+    try {
+      setSubtaskSaving(taskId);
+      setSubtaskError("");
+
+      const response = await fetch(`/api/tasks/${taskId}/subtasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+
+      const data: unknown = await response.json();
+
+      if (!response.ok) {
+        const message =
+          typeof data === "object" &&
+          data !== null &&
+          "error" in data &&
+          typeof data.error === "string"
+            ? data.error
+            : "Failed to create subtask.";
+
+        throw new Error(message);
+      }
+
+      if (typeof data !== "object" || data === null || !("subtask" in data)) {
+        throw new Error("Invalid subtask response.");
+      }
+
+      const newSubtask = data.subtask as Subtask;
+
+      setBoardColumns((currentColumns) =>
+        currentColumns.map((column) => ({
+          ...column,
+          tasks: column.tasks.map((task) =>
+            task.id === taskId
+              ? {
+                  ...task,
+                  subtasks: [...(task.subtasks ?? []), newSubtask],
+                }
+              : task,
+          ),
+        })),
+      );
+
+      setSubtaskTitles((current) => ({
+        ...current,
+        [taskId]: "",
+      }));
+    } catch (error) {
+      setSubtaskError(
+        error instanceof Error ? error.message : "Failed to create subtask.",
+      );
+    } finally {
+      setSubtaskSaving(null);
+    }
+  }
+
+  async function toggleSubtask(taskId: string, subtask: Subtask) {
+    try {
+      setSubtaskSaving(subtask.id);
+      setSubtaskError("");
+
+      const response = await fetch(
+        `/api/tasks/${taskId}/subtasks/${subtask.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ completed: !subtask.completed }),
+        },
+      );
+
+      const data: unknown = await response.json();
+
+      if (!response.ok) {
+        const message =
+          typeof data === "object" &&
+          data !== null &&
+          "error" in data &&
+          typeof data.error === "string"
+            ? data.error
+            : "Failed to update subtask.";
+
+        throw new Error(message);
+      }
+
+      if (typeof data !== "object" || data === null || !("subtask" in data)) {
+        throw new Error("Invalid subtask response.");
+      }
+
+      const updatedSubtask = data.subtask as Subtask;
+
+      setBoardColumns((currentColumns) =>
+        currentColumns.map((column) => ({
+          ...column,
+          tasks: column.tasks.map((task) =>
+            task.id === taskId
+              ? {
+                  ...task,
+                  subtasks: (task.subtasks ?? []).map((item) =>
+                    item.id === updatedSubtask.id ? updatedSubtask : item,
+                  ),
+                }
+              : task,
+          ),
+        })),
+      );
+    } catch (error) {
+      setSubtaskError(
+        error instanceof Error ? error.message : "Failed to update subtask.",
+      );
+    } finally {
+      setSubtaskSaving(null);
     }
   }
 
@@ -940,6 +1107,30 @@ setProjectsError("");
                   className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
                   placeholder="Optional description"
                 />
+              </div>
+              <div>
+                <label
+                  htmlFor="edit-labels"
+                  className="mb-1.5 block text-xs font-medium text-slate-700"
+                >
+                  Labels
+                </label>
+                <input
+                  id="edit-labels"
+                  type="text"
+                  value={editLabels}
+                  onChange={(event) => setEditLabels(event.target.value)}
+                  placeholder="e.g. bug, frontend, urgent"
+                  aria-describedby="edit-labels-help"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+                />
+                <p
+                  id="edit-labels-help"
+                  className="mt-1 text-xs text-slate-500"
+                >
+                  Separate labels with commas. Maximum 10 labels, 30 characters
+                  each.
+                </p>
               </div>
 
               <div>
@@ -1700,6 +1891,15 @@ setProjectsError("");
                   />
                 </div>
                 <input
+                  type="text"
+                  value={taskLabels}
+                  onChange={(event) => setTaskLabels(event.target.value)}
+                  placeholder="Labels (e.g. bug, frontend)"
+                  aria-label="Task labels"
+                  title="Separate labels with commas"
+                  className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+                />
+                <input
                   type="date"
                   value={taskDueDate}
                   onChange={(event) => setTaskDueDate(event.target.value)}
@@ -1941,9 +2141,162 @@ setProjectsError("");
                                     </div>
                                   </div>
 
+                                  {task.labels && task.labels.length > 0 && (
+                                    <div className="mt-2 flex flex-wrap gap-1.5">
+                                      {task.labels.map((label) => (
+                                        <span
+                                          key={label}
+                                          className="inline-flex items-center rounded-md border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700"
+                                        >
+                                          {label}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+
                                   {task.description && (
                                     <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500">
                                       {task.description}
+                                    </p>
+                                  )}
+
+                                  {/* Subtasks and progress */}
+                                  <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50/70 p-2.5">
+                                    {(() => {
+                                      const subtasks = task.subtasks ?? [];
+                                      const completedCount = subtasks.filter(
+                                        (subtask) => subtask.completed,
+                                      ).length;
+                                      const progress =
+                                        subtasks.length === 0
+                                          ? 0
+                                          : Math.round(
+                                              (completedCount /
+                                                subtasks.length) *
+                                                100,
+                                            );
+
+                                      return (
+                                        <>
+                                          <div className="mb-2 flex items-center justify-between gap-2">
+                                            <span className="text-xs font-semibold text-slate-700">
+                                              Subtasks
+                                            </span>
+                                            <span className="text-[10px] font-medium text-slate-500">
+                                              {completedCount}/{subtasks.length}{" "}
+                                              completed
+                                            </span>
+                                          </div>
+
+                                          {subtasks.length > 0 && (
+                                            <>
+                                              <div
+                                                className="mb-2 h-1.5 overflow-hidden rounded-full bg-slate-200"
+                                                role="progressbar"
+                                                aria-label={`${task.title} subtask progress`}
+                                                aria-valuemin={0}
+                                                aria-valuemax={100}
+                                                aria-valuenow={progress}
+                                              >
+                                                <div
+                                                  className="h-full rounded-full bg-indigo-500 transition-all duration-300"
+                                                  style={{
+                                                    width: `${progress}%`,
+                                                  }}
+                                                />
+                                              </div>
+
+                                              <p className="mb-2 text-right text-[10px] font-medium text-slate-500">
+                                                {progress}%
+                                              </p>
+
+                                              <div className="mb-3 space-y-1.5">
+                                                {subtasks.map((subtask) => (
+                                                  <label
+                                                    key={subtask.id}
+                                                    className="flex cursor-pointer items-start gap-2 text-xs"
+                                                  >
+                                                    <input
+                                                      type="checkbox"
+                                                      checked={
+                                                        subtask.completed
+                                                      }
+                                                      disabled={
+                                                        subtaskSaving ===
+                                                        subtask.id
+                                                      }
+                                                      onChange={() =>
+                                                        void toggleSubtask(
+                                                          task.id,
+                                                          subtask,
+                                                        )
+                                                      }
+                                                      className="mt-0.5 size-3.5 shrink-0 accent-indigo-600"
+                                                    />
+                                                    <span
+                                                      className={
+                                                        subtask.completed
+                                                          ? "text-slate-400 line-through"
+                                                          : "text-slate-700"
+                                                      }
+                                                    >
+                                                      {subtask.title}
+                                                    </span>
+                                                  </label>
+                                                ))}
+                                              </div>
+                                            </>
+                                          )}
+
+                                          <form
+                                            className="flex gap-1.5"
+                                            onSubmit={(event) => {
+                                              event.preventDefault();
+                                              void addSubtask(task.id);
+                                            }}
+                                          >
+                                            <input
+                                              type="text"
+                                              value={
+                                                subtaskTitles[task.id] ?? ""
+                                              }
+                                              onChange={(event) =>
+                                                setSubtaskTitles((current) => ({
+                                                  ...current,
+                                                  [task.id]: event.target.value,
+                                                }))
+                                              }
+                                              maxLength={200}
+                                              placeholder="Add a subtask..."
+                                              aria-label={`Add subtask to ${task.title}`}
+                                              className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none placeholder:text-slate-400 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400/20"
+                                            />
+                                            <button
+                                              type="submit"
+                                              disabled={
+                                                subtaskSaving === task.id ||
+                                                !(
+                                                  subtaskTitles[task.id] ?? ""
+                                                ).trim()
+                                              }
+                                              className="rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                              {subtaskSaving === task.id
+                                                ? "Saving..."
+                                                : "Add"}
+                                            </button>
+                                          </form>
+                                        </>
+                                      );
+                                    })()}
+                                  </div>
+
+                                  {subtaskError && (
+                                    <p
+                                      role="alert"
+                                      className="mt-1 text-[11px] text-rose-600"
+                                    >
+                                      {subtaskError}
                                     </p>
                                   )}
 

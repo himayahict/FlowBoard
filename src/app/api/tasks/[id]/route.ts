@@ -1,4 +1,3 @@
-
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
@@ -16,10 +15,7 @@ function parseDueDate(value: unknown): Date | null {
     return null;
   }
 
-  if (
-    typeof value !== "string" ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(value)
-  ) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     throw new Error("Due date must use YYYY-MM-DD format.");
   }
 
@@ -70,10 +66,7 @@ async function getAccessibleTask(id: string, userId: string) {
   return null;
 }
 
-export async function PATCH(
-  request: Request,
-  context: RouteContext,
-) {
+export async function PATCH(request: Request, context: RouteContext) {
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
@@ -100,11 +93,7 @@ export async function PATCH(
       );
     }
 
-    if (
-      typeof body !== "object" ||
-      body === null ||
-      Array.isArray(body)
-    ) {
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
       return NextResponse.json(
         { error: "Invalid request body." },
         { status: 400 },
@@ -116,6 +105,7 @@ export async function PATCH(
     const data: {
       title?: string;
       description?: string | null;
+      labels?: string[];
       priority?: string;
       assignee?: string;
       status?: string;
@@ -123,10 +113,7 @@ export async function PATCH(
     } = {};
 
     if ("title" in input) {
-      if (
-        typeof input.title !== "string" ||
-        !input.title.trim()
-      ) {
+      if (typeof input.title !== "string" || !input.title.trim()) {
         return NextResponse.json(
           { error: "Task title is required." },
           { status: 400 },
@@ -144,10 +131,7 @@ export async function PATCH(
     }
 
     if ("description" in input) {
-      if (
-        input.description !== null &&
-        typeof input.description !== "string"
-      ) {
+      if (input.description !== null && typeof input.description !== "string") {
         return NextResponse.json(
           { error: "Invalid task description." },
           { status: 400 },
@@ -168,6 +152,28 @@ export async function PATCH(
         typeof input.description === "string"
           ? input.description.trim() || null
           : null;
+    }
+
+    if ("labels" in input) {
+      if (
+        !Array.isArray(input.labels) ||
+        input.labels.length > 10 ||
+        input.labels.some(
+          (label) => typeof label !== "string" || label.trim().length > 30,
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Labels must be a list of up to 10 labels, each 30 characters or less.",
+          },
+          { status: 400 },
+        );
+      }
+
+      data.labels = [
+        ...new Set(input.labels.map((label) => label.trim()).filter(Boolean)),
+      ];
     }
 
     if ("priority" in input) {
@@ -223,10 +229,7 @@ export async function PATCH(
       } catch (error) {
         return NextResponse.json(
           {
-            error:
-              error instanceof Error
-                ? error.message
-                : "Invalid due date.",
+            error: error instanceof Error ? error.message : "Invalid due date.",
           },
           { status: 400 },
         );
@@ -280,10 +283,7 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
-  _request: Request,
-  context: RouteContext,
-) {
+export async function DELETE(_request: Request, context: RouteContext) {
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
