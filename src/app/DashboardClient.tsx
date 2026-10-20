@@ -80,32 +80,32 @@ const initialColumns: Column[] = [
 ];
 
 const priorityStyles: Record<TaskPriority, string> = {
-  High: "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-100",
-  Medium: "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-100",
-  Low: "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100",
+  High: "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200/60",
+  Medium: "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200/60",
+  Low: "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200/60",
 };
 
 const columnMeta: Record<
   TaskStatus,
-  { dot: string; header: string; count: string; bar: string }
+  { dot: string; accent: string; bg: string; text: string }
 > = {
   "To Do": {
     dot: "bg-slate-400",
-    header: "text-slate-700",
-    count: "bg-slate-100 text-slate-600",
-    bar: "bg-slate-300",
+    accent: "border-t-slate-300",
+    bg: "bg-slate-50",
+    text: "text-slate-600",
   },
   "In Progress": {
     dot: "bg-indigo-500",
-    header: "text-slate-700",
-    count: "bg-indigo-50 text-indigo-700",
-    bar: "bg-indigo-500",
+    accent: "border-t-indigo-500",
+    bg: "bg-indigo-50/60",
+    text: "text-indigo-700",
   },
   Done: {
     dot: "bg-emerald-500",
-    header: "text-slate-700",
-    count: "bg-emerald-50 text-emerald-700",
-    bar: "bg-emerald-500",
+    accent: "border-t-emerald-500",
+    bg: "bg-emerald-50/60",
+    text: "text-emerald-700",
   },
 };
 
@@ -119,6 +119,10 @@ export default function Home() {
   const [taskLabels, setTaskLabels] = useState("");
   const [taskDueDate, setTaskDueDate] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [priorityFilter, setPriorityFilter] = useState("All");
+  const [dueDateFilter, setDueDateFilter] = useState("All");
+  const [assigneeFilter, setAssigneeFilter] = useState("All");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -159,9 +163,7 @@ export default function Home() {
   const [subtaskTitles, setSubtaskTitles] = useState<Record<string, string>>(
     {},
   );
-
   const [subtaskSaving, setSubtaskSaving] = useState<string | null>(null);
-
   const [subtaskError, setSubtaskError] = useState("");
 
   const loadTasks = useCallback(async () => {
@@ -178,11 +180,7 @@ export default function Home() {
       const taskUrl = new URLSearchParams({
         workspaceId: selectedWorkspaceId,
       });
-
-      if (selectedProjectId) {
-        taskUrl.set("projectId", selectedProjectId);
-      }
-
+      if (selectedProjectId) taskUrl.set("projectId", selectedProjectId);
       const response = await fetch(`/api/tasks?${taskUrl.toString()}`, {
         method: "GET",
         cache: "no-store",
@@ -252,22 +250,15 @@ export default function Home() {
       setProjectsLoaded(false);
       return;
     }
-
     setProjectsLoading(true);
     setProjectsLoaded(false);
     setProjectsError("");
-
     try {
       const response = await fetch(
         `/api/projects?workspaceId=${encodeURIComponent(selectedWorkspaceId)}`,
-        {
-          method: "GET",
-          cache: "no-store",
-        },
+        { method: "GET", cache: "no-store" },
       );
-
       const data: unknown = await response.json().catch(() => null);
-
       if (!response.ok) {
         const message =
           typeof data === "object" &&
@@ -276,20 +267,11 @@ export default function Home() {
           typeof data.error === "string"
             ? data.error
             : "Failed to load projects.";
-
         throw new Error(message);
       }
-
-      if (!Array.isArray(data)) {
-        throw new Error("Invalid projects response.");
-      }
-
+      if (!Array.isArray(data)) throw new Error("Invalid projects response.");
       setProjects(
-        data as {
-          id: string;
-          name: string;
-          description: string | null;
-        }[],
+        data as { id: string; name: string; description: string | null }[],
       );
     } catch (error) {
       console.error("Failed to load projects:", error);
@@ -304,33 +286,25 @@ export default function Home() {
 
   const createProject = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-
     if (!selectedWorkspaceId || !projectName.trim()) {
       setProjectsError("Enter a project name first.");
       return;
     }
-
     if (projectSaving) return;
-
     setProjectSaving(true);
     setProjectsError("");
     setProjectsMessage("");
-
     try {
       const response = await fetch("/api/projects", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: projectName.trim(),
           description: projectDescription.trim() || null,
           workspaceId: selectedWorkspaceId,
         }),
       });
-
       const data: unknown = await response.json().catch(() => null);
-
       if (!response.ok) {
         const message =
           typeof data === "object" &&
@@ -339,14 +313,11 @@ export default function Home() {
           typeof data.error === "string"
             ? data.error
             : "Failed to create project.";
-
         throw new Error(message);
       }
-
       setProjectName("");
       setProjectDescription("");
       setProjectsMessage("Project created successfully.");
-
       await loadProjects();
     } catch (error) {
       console.error("Failed to create project:", error);
@@ -497,23 +468,19 @@ export default function Home() {
         role: workspace.members?.[0]?.role ?? "MEMBER",
       }));
       setWorkspaces(workspaceList);
-
       const savedWorkspaceId = localStorage.getItem(
         "flowboard:selectedWorkspaceId",
       );
-
       setSelectedWorkspaceId((currentId) => {
         if (workspaceList.some((workspace) => workspace.id === currentId)) {
           return currentId;
         }
-
         if (
           savedWorkspaceId &&
           workspaceList.some((workspace) => workspace.id === savedWorkspaceId)
         ) {
           return savedWorkspaceId;
         }
-
         return workspaceList[0]?.id ?? "";
       });
     } catch (error) {
@@ -586,11 +553,8 @@ export default function Home() {
   }, [loadProjects]);
 
   useEffect(() => {
-    if (!projectsLoaded || projectsLoading || !selectedWorkspaceId) {
-      return;
-    }
+    if (!projectsLoaded || projectsLoading || !selectedWorkspaceId) return;
     const savedProjectId = localStorage.getItem("flowboard:selectedProjectId");
-
     if (
       savedProjectId &&
       projects.some((project) => project.id === savedProjectId)
@@ -785,29 +749,23 @@ export default function Home() {
 
   async function addSubtask(taskId: string) {
     const title = (subtaskTitles[taskId] ?? "").trim();
-
     if (!title) {
       setSubtaskError("Please enter a subtask title.");
       return;
     }
-
     if (title.length > 200) {
       setSubtaskError("Subtask title must be 200 characters or less.");
       return;
     }
-
     try {
       setSubtaskSaving(taskId);
       setSubtaskError("");
-
       const response = await fetch(`/api/tasks/${taskId}/subtasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title }),
       });
-
       const data: unknown = await response.json();
-
       if (!response.ok) {
         const message =
           typeof data === "object" &&
@@ -816,16 +774,12 @@ export default function Home() {
           typeof data.error === "string"
             ? data.error
             : "Failed to create subtask.";
-
         throw new Error(message);
       }
-
       if (typeof data !== "object" || data === null || !("subtask" in data)) {
         throw new Error("Invalid subtask response.");
       }
-
       const newSubtask = data.subtask as Subtask;
-
       setBoardColumns((currentColumns) =>
         currentColumns.map((column) => ({
           ...column,
@@ -839,11 +793,7 @@ export default function Home() {
           ),
         })),
       );
-
-      setSubtaskTitles((current) => ({
-        ...current,
-        [taskId]: "",
-      }));
+      setSubtaskTitles((current) => ({ ...current, [taskId]: "" }));
     } catch (error) {
       setSubtaskError(
         error instanceof Error ? error.message : "Failed to create subtask.",
@@ -857,7 +807,6 @@ export default function Home() {
     try {
       setSubtaskSaving(subtask.id);
       setSubtaskError("");
-
       const response = await fetch(
         `/api/tasks/${taskId}/subtasks/${subtask.id}`,
         {
@@ -866,9 +815,7 @@ export default function Home() {
           body: JSON.stringify({ completed: !subtask.completed }),
         },
       );
-
       const data: unknown = await response.json();
-
       if (!response.ok) {
         const message =
           typeof data === "object" &&
@@ -877,16 +824,12 @@ export default function Home() {
           typeof data.error === "string"
             ? data.error
             : "Failed to update subtask.";
-
         throw new Error(message);
       }
-
       if (typeof data !== "object" || data === null || !("subtask" in data)) {
         throw new Error("Invalid subtask response.");
       }
-
       const updatedSubtask = data.subtask as Subtask;
-
       setBoardColumns((currentColumns) =>
         currentColumns.map((column) => ({
           ...column,
@@ -947,13 +890,19 @@ export default function Home() {
   const completionRate =
     totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100);
 
+  const activeProject = projects.find((p) => p.id === selectedProjectId);
+  const activeWorkspace = workspaces.find(
+    (w) => w.id === selectedWorkspaceId,
+  );
+
   const stats = [
     {
       label: "Total Tasks",
       value: totalTasks,
-      tone: "text-indigo-600",
-      bg: "bg-indigo-50",
-      ring: "ring-indigo-100",
+      tone: "text-slate-900",
+      iconColor: "text-indigo-600",
+      iconBg: "bg-indigo-50",
+      iconRing: "ring-indigo-100",
       icon: (
         <path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
       ),
@@ -961,9 +910,10 @@ export default function Home() {
     {
       label: "In Progress",
       value: inProgressTasks,
-      tone: "text-amber-600",
-      bg: "bg-amber-50",
-      ring: "ring-amber-100",
+      tone: "text-slate-900",
+      iconColor: "text-amber-600",
+      iconBg: "bg-amber-50",
+      iconRing: "ring-amber-100",
       icon: (
         <>
           <circle cx="12" cy="12" r="10" />
@@ -974,9 +924,10 @@ export default function Home() {
     {
       label: "Completed",
       value: completedTasks,
-      tone: "text-emerald-600",
-      bg: "bg-emerald-50",
-      ring: "ring-emerald-100",
+      tone: "text-slate-900",
+      iconColor: "text-emerald-600",
+      iconBg: "bg-emerald-50",
+      iconRing: "ring-emerald-100",
       icon: (
         <>
           <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
@@ -987,9 +938,10 @@ export default function Home() {
     {
       label: "Team Members",
       value: members.length,
-      tone: "text-fuchsia-600",
-      bg: "bg-fuchsia-50",
-      ring: "ring-fuchsia-100",
+      tone: "text-slate-900",
+      iconColor: "text-fuchsia-600",
+      iconBg: "bg-fuchsia-50",
+      iconRing: "ring-fuchsia-100",
       icon: (
         <>
           <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
@@ -1003,22 +955,11 @@ export default function Home() {
     <main className="relative min-h-screen bg-slate-50 text-slate-800 antialiased">
       <style jsx global>{`
         @keyframes fadeIn {
-          from {
-            opacity: 0;
-            transform: translateY(6px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
         }
-        .animate-fade-in {
-          animation: fadeIn 0.3s ease-out both;
-        }
-        .scrollbar-thin::-webkit-scrollbar {
-          width: 6px;
-          height: 6px;
-        }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out both; }
+        .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
         .scrollbar-thin::-webkit-scrollbar-thumb {
           background: rgba(148, 163, 184, 0.3);
           border-radius: 999px;
@@ -1026,14 +967,12 @@ export default function Home() {
         .scrollbar-thin::-webkit-scrollbar-thumb:hover {
           background: rgba(148, 163, 184, 0.5);
         }
-        .scrollbar-thin::-webkit-scrollbar-track {
-          background: transparent;
-        }
+        .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
       `}</style>
 
       {/* Edit Task Modal */}
       {editingTask && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-900/40 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/50 p-4 backdrop-blur-sm">
           <form
             onSubmit={saveEditedTask}
             role="dialog"
@@ -1045,7 +984,7 @@ export default function Home() {
               <div>
                 <h2
                   id="edit-task-title"
-                  className="text-base font-semibold text-slate-900"
+                  className="text-base font-semibold tracking-tight text-slate-900"
                 >
                   Edit task
                 </h2>
@@ -1058,7 +997,7 @@ export default function Home() {
                 onClick={cancelEditingTask}
                 disabled={editSaving}
                 aria-label="Close"
-                className="flex size-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
+                className="flex size-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -1077,7 +1016,7 @@ export default function Home() {
               <div>
                 <label
                   htmlFor="edit-title"
-                  className="mb-1.5 block text-xs font-medium text-slate-700"
+                  className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-slate-500"
                 >
                   Title
                 </label>
@@ -1094,7 +1033,7 @@ export default function Home() {
               <div>
                 <label
                   htmlFor="edit-description"
-                  className="mb-1.5 block text-xs font-medium text-slate-700"
+                  className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-slate-500"
                 >
                   Description
                 </label>
@@ -1108,10 +1047,11 @@ export default function Home() {
                   placeholder="Optional description"
                 />
               </div>
+
               <div>
                 <label
                   htmlFor="edit-labels"
-                  className="mb-1.5 block text-xs font-medium text-slate-700"
+                  className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-slate-500"
                 >
                   Labels
                 </label>
@@ -1126,9 +1066,9 @@ export default function Home() {
                 />
                 <p
                   id="edit-labels-help"
-                  className="mt-1 text-xs text-slate-500"
+                  className="mt-1 text-[11px] text-slate-500"
                 >
-                  Separate labels with commas. Maximum 10 labels, 30 characters
+                  Separate labels with commas. Max 10 labels, 30 characters
                   each.
                 </p>
               </div>
@@ -1136,7 +1076,7 @@ export default function Home() {
               <div>
                 <label
                   htmlFor="edit-due-date"
-                  className="mb-1.5 block text-xs font-medium text-slate-700"
+                  className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-slate-500"
                 >
                   Due date
                 </label>
@@ -1162,7 +1102,7 @@ export default function Home() {
                 <div>
                   <label
                     htmlFor="edit-priority"
-                    className="mb-1.5 block text-xs font-medium text-slate-700"
+                    className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-slate-500"
                   >
                     Priority
                   </label>
@@ -1183,7 +1123,7 @@ export default function Home() {
                 <div>
                   <label
                     htmlFor="edit-status"
-                    className="mb-1.5 block text-xs font-medium text-slate-700"
+                    className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-slate-500"
                   >
                     Status
                   </label>
@@ -1205,7 +1145,7 @@ export default function Home() {
               <div>
                 <label
                   htmlFor="edit-assignee"
-                  className="mb-1.5 block text-xs font-medium text-slate-700"
+                  className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-slate-500"
                 >
                   Assignee
                 </label>
@@ -1251,8 +1191,8 @@ export default function Home() {
       )}
 
       <div className="flex h-screen overflow-hidden">
-        {/* SIDEBAR — LIGHT THEME */}
-        <aside className="scrollbar-thin hidden w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200/80 bg-white px-3 py-4 md:flex">
+        {/* SIDEBAR */}
+        <aside className="scrollbar-thin hidden w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white px-3 py-4 md:flex">
           {/* Brand */}
           <div className="flex items-center gap-2.5 px-2">
             <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-md shadow-indigo-500/25">
@@ -1329,7 +1269,6 @@ export default function Home() {
             </div>
           </nav>
 
-          {/* Divider */}
           <div className="my-4 h-px bg-slate-100" />
 
           {/* Workspace selector */}
@@ -1348,10 +1287,8 @@ export default function Home() {
                 value={selectedWorkspaceId}
                 onChange={(event) => {
                   const workspaceId = event.target.value;
-
                   setSelectedWorkspaceId(workspaceId);
                   setSelectedProjectId("");
-
                   localStorage.setItem(
                     "flowboard:selectedWorkspaceId",
                     workspaceId,
@@ -1397,7 +1334,6 @@ export default function Home() {
 
           {/* Projects */}
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-            {/* Header */}
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <svg
@@ -1421,7 +1357,6 @@ export default function Home() {
               </span>
             </div>
 
-            {/* Create toggle — only for OWNER/ADMIN */}
             {["OWNER", "ADMIN"].includes(
               workspaces.find(
                 (workspace) => workspace.id === selectedWorkspaceId,
@@ -1487,7 +1422,6 @@ export default function Home() {
                 );
               })()}
 
-            {/* Messages */}
             {projectsError && (
               <p className="mb-2 rounded-lg bg-rose-50 px-2.5 py-1.5 text-[11px] text-rose-700 ring-1 ring-inset ring-rose-100">
                 {projectsError}
@@ -1500,7 +1434,6 @@ export default function Home() {
               </p>
             )}
 
-            {/* List */}
             {projectsLoading ? (
               <div className="space-y-1.5">
                 {[0, 1].map((i) => (
@@ -1552,11 +1485,31 @@ export default function Home() {
                     "from-cyan-500 to-blue-600",
                   ];
                   const palette = palettes[index % palettes.length];
+                  const isActive = project.id === selectedProjectId;
 
                   return (
-                    <article
+                    <button
                       key={project.id}
-                      className="group rounded-lg border border-slate-200 bg-white p-2.5 transition hover:border-indigo-200 hover:shadow-sm"
+                      type="button"
+                      onClick={() => {
+                        const newProjectId = isActive ? "" : project.id;
+                        setSelectedProjectId(newProjectId);
+                        if (newProjectId) {
+                          localStorage.setItem(
+                            "flowboard:selectedProjectId",
+                            newProjectId,
+                          );
+                        } else {
+                          localStorage.removeItem(
+                            "flowboard:selectedProjectId",
+                          );
+                        }
+                      }}
+                      className={`group w-full rounded-lg border p-2.5 text-left transition ${
+                        isActive
+                          ? "border-indigo-200 bg-indigo-50/60 ring-1 ring-inset ring-indigo-200"
+                          : "border-slate-200 bg-white hover:border-indigo-200 hover:shadow-sm"
+                      }`}
                     >
                       <div className="flex items-start gap-2">
                         <div
@@ -1585,7 +1538,7 @@ export default function Home() {
                           </p>
                         </div>
                       </div>
-                    </article>
+                    </button>
                   );
                 })}
               </div>
@@ -1768,18 +1721,22 @@ export default function Home() {
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {/* Top bar */}
           <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white/90 px-5 py-3 backdrop-blur-xl md:px-8">
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <span className="font-medium">Workspace</span>
+            <div className="flex min-w-0 items-center gap-2 text-xs text-slate-500">
+              <span className="font-medium">
+                {activeWorkspace?.name ?? "Workspace"}
+              </span>
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
-                className="size-3 text-slate-300"
+                className="size-3 shrink-0 text-slate-300"
               >
                 <path d="M9 18l6-6-6-6" />
               </svg>
-              <span className="font-semibold text-slate-800">Dashboard</span>
+              <span className="truncate font-semibold text-slate-800">
+                {activeProject?.name ?? "Dashboard"}
+              </span>
             </div>
 
             <div className="flex items-center gap-3">
@@ -1811,20 +1768,21 @@ export default function Home() {
           </header>
 
           {/* Scrollable content */}
-          <div className="scrollbar-thin flex-1 overflow-y-auto bg-slate-50/50">
+          <div className="scrollbar-thin flex-1 overflow-y-auto bg-slate-50">
             <div className="mx-auto max-w-7xl px-5 py-6 md:px-8 md:py-8">
               {/* Page header */}
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <div className="inline-flex items-center gap-1.5 rounded-full border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">
                     <span className="size-1.5 animate-pulse rounded-full bg-indigo-500" />
-                    Live workspace
+                    {activeProject ? "Project board" : "Live workspace"}
                   </div>
                   <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 md:text-3xl">
-                    Project Dashboard
+                    {activeProject?.name ?? "Project Dashboard"}
                   </h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    Plan your work. Track your progress. Ship faster.
+                    {activeProject?.description ||
+                      "Plan your work. Track your progress. Ship faster."}
                   </p>
                 </div>
 
@@ -1907,14 +1865,11 @@ export default function Home() {
                   title="Optional task due date"
                   className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
                 />
-
                 <select
                   value={selectedProjectId}
                   onChange={(event) => {
                     const projectId = event.target.value;
-
                     setSelectedProjectId(projectId);
-
                     if (projectId) {
                       localStorage.setItem(
                         "flowboard:selectedProjectId",
@@ -1940,7 +1895,6 @@ export default function Home() {
                     </option>
                   ))}
                 </select>
-
                 <select
                   value={taskPriority}
                   onChange={(event) =>
@@ -1988,10 +1942,10 @@ export default function Home() {
                 {stats.map((stat) => (
                   <div
                     key={stat.label}
-                    className="animate-fade-in flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow-md"
+                    className="animate-fade-in flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
                   >
                     <div
-                      className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${stat.bg} ${stat.tone} ring-1 ring-inset ${stat.ring}`}
+                      className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${stat.iconBg} ${stat.iconColor} ring-1 ring-inset ${stat.iconRing}`}
                     >
                       <svg
                         viewBox="0 0 24 24"
@@ -2006,7 +1960,7 @@ export default function Home() {
                       </svg>
                     </div>
                     <div className="min-w-0">
-                      <p className="text-xs font-medium text-slate-500">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
                         {stat.label}
                       </p>
                       <p className="mt-0.5 text-2xl font-bold tracking-tight text-slate-900">
@@ -2017,12 +1971,115 @@ export default function Home() {
                 ))}
               </div>
 
+              {/* Task Filters */}
+              <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="size-3.5 text-slate-500"
+                    >
+                      <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
+                    </svg>
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                      Filters
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAssigneeFilter("All");
+                      setStatusFilter("All");
+                      setPriorityFilter("All");
+                      setDueDateFilter("All");
+                      setSearchTerm("");
+                    }}
+                    className="text-[11px] font-medium text-indigo-600 hover:text-indigo-700 hover:underline"
+                  >
+                    Reset all
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-slate-600">
+                      Status
+                    </label>
+                    <select
+                      value={statusFilter}
+                      onChange={(event) => setStatusFilter(event.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+                    >
+                      <option value="All">All statuses</option>
+                      <option value="To Do">To Do</option>
+                      <option value="In Progress">In Progress</option>
+                      <option value="Done">Done</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-slate-600">
+                      Priority
+                    </label>
+                    <select
+                      value={priorityFilter}
+                      onChange={(event) =>
+                        setPriorityFilter(event.target.value)
+                      }
+                      className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+                    >
+                      <option value="All">All priorities</option>
+                      <option value="Low">Low</option>
+                      <option value="Medium">Medium</option>
+                      <option value="High">High</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-slate-600">
+                      Assignee
+                    </label>
+                    <select
+                      value={assigneeFilter}
+                      onChange={(event) =>
+                        setAssigneeFilter(event.target.value)
+                      }
+                      className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+                    >
+                      <option value="All">All assignees</option>
+                      <option value="SH">SH</option>
+                      <option value="AK">AK</option>
+                      <option value="JM">JM</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-medium text-slate-600">
+                      Due Date
+                    </label>
+                    <select
+                      value={dueDateFilter}
+                      onChange={(event) => setDueDateFilter(event.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+                    >
+                      <option value="All">All due dates</option>
+                      <option value="Today">Due today</option>
+                      <option value="Overdue">Overdue</option>
+                      <option value="Has due date">Has due date</option>
+                      <option value="No due date">No due date</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
               {/* Board */}
               <div className="mt-8">
                 <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
                   <div>
-                    <h3 className="text-lg font-semibold text-slate-900">
-                      Website Development
+                    <h3 className="text-lg font-semibold tracking-tight text-slate-900">
+                      {activeProject?.name ?? "Website Development"}
                     </h3>
                     <p className="mt-0.5 text-sm text-slate-500">
                       {totalTasks} task{totalTasks === 1 ? "" : "s"} ·{" "}
@@ -2041,42 +2098,74 @@ export default function Home() {
                 ) : (
                   <div className="grid items-start gap-4 lg:grid-cols-3">
                     {boardColumns.map((column) => {
-                      const visibleTasks = column.tasks.filter((task) =>
-                        task.title
-                          .toLowerCase()
-                          .includes(searchTerm.toLowerCase()),
-                      );
+                      const visibleTasks = column.tasks.filter((task) => {
+                        const query = searchTerm.trim().toLowerCase();
+                        const matchesSearch =
+                          task.title.toLowerCase().includes(query) ||
+                          (task.description ?? "")
+                            .toLowerCase()
+                            .includes(query) ||
+                          (task.labels ?? []).some((label) =>
+                            label.toLowerCase().includes(query),
+                          ) ||
+                          (task.assignee ?? "").toLowerCase().includes(query);
+                        const matchesStatus =
+                          statusFilter === "All" ||
+                          task.status === statusFilter;
+                        const matchesPriority =
+                          priorityFilter === "All" ||
+                          task.priority === priorityFilter;
+                        const matchesAssignee =
+                          assigneeFilter === "All" ||
+                          task.assignee.toLowerCase() ===
+                            assigneeFilter.toLowerCase();
+                        const dueDate = task.dueDate?.slice(0, 10) ?? "";
+                        const today = getLocalDateString();
+                        const matchesDueDate =
+                          dueDateFilter === "All" ||
+                          (dueDateFilter === "Today" && dueDate === today) ||
+                          (dueDateFilter === "Overdue" &&
+                            !!dueDate &&
+                            dueDate < today &&
+                            task.status !== "Done") ||
+                          (dueDateFilter === "Has due date" && !!dueDate) ||
+                          (dueDateFilter === "No due date" && !dueDate);
+
+                        return (
+                          matchesSearch &&
+                          matchesStatus &&
+                          matchesPriority &&
+                          matchesAssignee &&
+                          matchesDueDate
+                        );
+                      });
+
                       const meta = columnMeta[column.title];
 
                       return (
                         <div
                           key={column.title}
-                          className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+                          className={`min-w-0 overflow-hidden rounded-xl border border-slate-200 ${meta.bg} shadow-sm`}
                         >
-                          {/* Colored top bar */}
-                          <div className={`h-1 ${meta.bar}`} />
+                          <div className={`h-1 border-t-2 ${meta.accent}`} />
 
-                          {/* Column header */}
-                          <div className="flex items-center justify-between border-b border-slate-100 px-3.5 py-2.5">
+                          <div className="flex items-center justify-between px-3.5 py-2.5">
                             <div className="flex items-center gap-2">
                               <span
-                                className={`size-2 rounded-full ${meta.dot}`}
+                                className={`size-2 rounded-full ${meta.dot} shadow-sm`}
                               />
                               <h4
-                                className={`text-sm font-semibold ${meta.header}`}
+                                className={`text-sm font-semibold ${meta.text}`}
                               >
                                 {column.title}
                               </h4>
                             </div>
-                            <span
-                              className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${meta.count}`}
-                            >
+                            <span className="rounded-md bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600 ring-1 ring-inset ring-slate-200">
                               {visibleTasks.length}
                             </span>
                           </div>
 
-                          {/* Tasks */}
-                          <div className="space-y-2 p-2.5">
+                          <div className="space-y-2 px-2.5 pb-2.5">
                             {visibleTasks.map((task) => {
                               const isOverdue =
                                 task.dueDate &&
@@ -2146,7 +2235,7 @@ export default function Home() {
                                       {task.labels.map((label) => (
                                         <span
                                           key={label}
-                                          className="inline-flex items-center rounded-md border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700"
+                                          className="inline-flex items-center rounded border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700"
                                         >
                                           {label}
                                         </span>
@@ -2160,8 +2249,8 @@ export default function Home() {
                                     </p>
                                   )}
 
-                                  {/* Subtasks and progress */}
-                                  <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50/70 p-2.5">
+                                  {/* Subtasks */}
+                                  <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50/80 p-2.5">
                                     {(() => {
                                       const subtasks = task.subtasks ?? [];
                                       const completedCount = subtasks.filter(
@@ -2179,19 +2268,31 @@ export default function Home() {
                                       return (
                                         <>
                                           <div className="mb-2 flex items-center justify-between gap-2">
-                                            <span className="text-xs font-semibold text-slate-700">
-                                              Subtasks
-                                            </span>
-                                            <span className="text-[10px] font-medium text-slate-500">
-                                              {completedCount}/{subtasks.length}{" "}
-                                              completed
+                                            <div className="flex items-center gap-1.5">
+                                              <svg
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth="2"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                className="size-3 text-slate-400"
+                                              >
+                                                <path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+                                              </svg>
+                                              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">
+                                                Subtasks
+                                              </span>
+                                            </div>
+                                            <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-500 ring-1 ring-inset ring-slate-200">
+                                              {completedCount}/{subtasks.length}
                                             </span>
                                           </div>
 
                                           {subtasks.length > 0 && (
                                             <>
                                               <div
-                                                className="mb-2 h-1.5 overflow-hidden rounded-full bg-slate-200"
+                                                className="mb-2 h-1 overflow-hidden rounded-full bg-slate-200"
                                                 role="progressbar"
                                                 aria-label={`${task.title} subtask progress`}
                                                 aria-valuemin={0}
@@ -2200,17 +2301,11 @@ export default function Home() {
                                               >
                                                 <div
                                                   className="h-full rounded-full bg-indigo-500 transition-all duration-300"
-                                                  style={{
-                                                    width: `${progress}%`,
-                                                  }}
+                                                  style={{ width: `${progress}%` }}
                                                 />
                                               </div>
 
-                                              <p className="mb-2 text-right text-[10px] font-medium text-slate-500">
-                                                {progress}%
-                                              </p>
-
-                                              <div className="mb-3 space-y-1.5">
+                                              <div className="mb-2.5 space-y-1.5">
                                                 {subtasks.map((subtask) => (
                                                   <label
                                                     key={subtask.id}
@@ -2218,9 +2313,7 @@ export default function Home() {
                                                   >
                                                     <input
                                                       type="checkbox"
-                                                      checked={
-                                                        subtask.completed
-                                                      }
+                                                      checked={subtask.completed}
                                                       disabled={
                                                         subtaskSaving ===
                                                         subtask.id
@@ -2257,9 +2350,7 @@ export default function Home() {
                                           >
                                             <input
                                               type="text"
-                                              value={
-                                                subtaskTitles[task.id] ?? ""
-                                              }
+                                              value={subtaskTitles[task.id] ?? ""}
                                               onChange={(event) =>
                                                 setSubtaskTitles((current) => ({
                                                   ...current,
@@ -2269,7 +2360,7 @@ export default function Home() {
                                               maxLength={200}
                                               placeholder="Add a subtask..."
                                               aria-label={`Add subtask to ${task.title}`}
-                                              className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none placeholder:text-slate-400 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400/20"
+                                              className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
                                             />
                                             <button
                                               type="submit"
@@ -2279,10 +2370,10 @@ export default function Home() {
                                                   subtaskTitles[task.id] ?? ""
                                                 ).trim()
                                               }
-                                              className="rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                              className="rounded-md bg-indigo-600 px-2.5 py-1.5 text-[11px] font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
                                             >
                                               {subtaskSaving === task.id
-                                                ? "Saving..."
+                                                ? "..."
                                                 : "Add"}
                                             </button>
                                           </form>
@@ -2303,12 +2394,12 @@ export default function Home() {
                                   {task.dueDate && (
                                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                                       <span
-                                        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
+                                        className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${
                                           isOverdue
-                                            ? "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-100"
+                                            ? "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200"
                                             : isDueToday
-                                              ? "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-100"
-                                              : "bg-slate-50 text-slate-600 ring-1 ring-inset ring-slate-100"
+                                              ? "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200"
+                                              : "bg-slate-50 text-slate-600 ring-1 ring-inset ring-slate-200"
                                         }`}
                                       >
                                         <svg
@@ -2331,21 +2422,21 @@ export default function Home() {
                                         {formatDueDate(task.dueDate)}
                                       </span>
                                       {isOverdue && (
-                                        <span className="text-[11px] font-medium text-rose-600">
+                                        <span className="text-[10px] font-semibold text-rose-600">
                                           Overdue
                                         </span>
                                       )}
                                       {isDueToday && (
-                                        <span className="text-[11px] font-medium text-amber-600">
+                                        <span className="text-[10px] font-semibold text-amber-600">
                                           Due today
                                         </span>
                                       )}
                                     </div>
                                   )}
 
-                                  <div className="mt-3 flex items-center justify-between gap-2">
+                                  <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-2.5">
                                     <span
-                                      className={`rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${priorityStyles[task.priority] ?? priorityStyles.Medium}`}
+                                      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${priorityStyles[task.priority] ?? priorityStyles.Medium}`}
                                     >
                                       {task.priority}
                                     </span>
@@ -2381,7 +2472,7 @@ export default function Home() {
                             })}
 
                             {visibleTasks.length === 0 && (
-                              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 py-6 text-center">
+                              <div className="rounded-lg border border-dashed border-slate-300 bg-white/60 py-6 text-center">
                                 <p className="text-xs text-slate-400">
                                   {searchTerm
                                     ? "No matching tasks"
@@ -2391,7 +2482,7 @@ export default function Home() {
                             )}
                           </div>
 
-                          <div className="border-t border-slate-100 p-2.5">
+                          <div className="border-t border-slate-200/70 p-2.5">
                             <button
                               type="button"
                               onClick={() => {
