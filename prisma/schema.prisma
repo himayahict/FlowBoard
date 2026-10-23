@@ -14,6 +14,7 @@ model Task {
   labels      String[] @default([])
   priority    String  @default("Medium")
   assignee    String  @default("SH")
+  assigneeId  String?
   status      String  @default("To Do")
   userId      String?
   user        User?   @relation(fields: [userId], references: [id], onDelete: SetNull)

@@ -108,6 +108,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       labels?: string[];
       priority?: string;
       assignee?: string;
+      assigneeId?: string | null;
       status?: string;
       dueDate?: Date | null;
     } = {};
@@ -205,6 +206,58 @@ export async function PATCH(request: Request, context: RouteContext) {
       }
 
       data.assignee = input.assignee.trim();
+    }
+
+        if ("assigneeId" in input) {
+      if (
+        input.assigneeId !== null &&
+        (typeof input.assigneeId !== "string" ||
+          !input.assigneeId.trim())
+      ) {
+        return NextResponse.json(
+          { error: "Invalid task assignee ID." },
+          { status: 400 },
+        );
+      }
+
+      const assigneeId =
+        typeof input.assigneeId === "string"
+          ? input.assigneeId.trim()
+          : null;
+
+      if (assigneeId !== null) {
+        const taskForAssignment = await prisma.task.findUnique({
+          where: { id },
+          select: { workspaceId: true },
+        });
+
+        if (!taskForAssignment?.workspaceId) {
+          return NextResponse.json(
+            { error: "A workspace is required when assigning a member." },
+            { status: 400 },
+          );
+        }
+
+        const assigneeMembership = await prisma.workspaceMember.findFirst({
+          where: {
+            workspaceId: taskForAssignment.workspaceId,
+            userId: assigneeId,
+          },
+          select: { userId: true },
+        });
+
+        if (!assigneeMembership) {
+          return NextResponse.json(
+            {
+              error:
+                "Assignee must be a member of the task's workspace.",
+            },
+            { status: 400 },
+          );
+        }
+      }
+
+      data.assigneeId = assigneeId;
     }
 
     if ("status" in input) {

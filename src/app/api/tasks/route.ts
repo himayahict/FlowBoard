@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
@@ -92,6 +92,13 @@ export async function GET(request: Request) {
         },
         orderBy: { createdAt: "desc" },
         include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
           subtasks: {
             orderBy: { createdAt: "asc" },
           },
@@ -106,10 +113,17 @@ export async function GET(request: Request) {
       where: { userId: session.user.id },
       orderBy: { createdAt: "desc" },
       include: {
-        subtasks: {
-          orderBy: { createdAt: "asc" },
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+          subtasks: {
+            orderBy: { createdAt: "asc" },
+          },
         },
-      },
     });
 
     return NextResponse.json(tasks);
@@ -211,9 +225,9 @@ export async function POST(request: Request) {
         : "To Do";
 
     const assignee =
-      typeof input.assignee === "string" && input.assignee.trim()
+      typeof input.assignee === "string"
         ? input.assignee.trim()
-        : "SH";
+        : "";
 
     if (assignee.length > 50) {
       return NextResponse.json(
@@ -280,6 +294,50 @@ export async function POST(request: Request) {
       }
     }
 
+        let assigneeId: string | null = null;
+
+    if (
+      input.assigneeId !== undefined &&
+      input.assigneeId !== null &&
+      input.assigneeId !== ""
+    ) {
+      if (
+        typeof input.assigneeId !== "string" ||
+        !input.assigneeId.trim()
+      ) {
+        return NextResponse.json(
+          { error: "A valid assignee ID is required." },
+          { status: 400 },
+        );
+      }
+
+      if (!workspaceId) {
+        return NextResponse.json(
+          { error: "A workspace is required when assigning a member." },
+          { status: 400 },
+        );
+      }
+
+      assigneeId = input.assigneeId.trim();
+
+      const assigneeMembership = await prisma.workspaceMember.findFirst({
+        where: {
+          workspaceId,
+          userId: assigneeId,
+        },
+        select: {
+          userId: true,
+        },
+      });
+
+      if (!assigneeMembership) {
+        return NextResponse.json(
+          { error: "Assignee must be a member of the selected workspace." },
+          { status: 400 },
+        );
+      }
+    }
+
     let projectId: string | null = null;
 
     if (input.projectId !== undefined && input.projectId !== null) {
@@ -324,12 +382,23 @@ export async function POST(request: Request) {
         labels,
         priority,
         assignee,
+        assigneeId,
         status,
         userId: session.user.id,
         workspaceId,
         projectId,
         ...(dueDate !== undefined ? { dueDate } : {}),
       },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+
     });
 
     return NextResponse.json(task, { status: 201 });
@@ -342,3 +411,6 @@ export async function POST(request: Request) {
     );
   }
 }
+
+
+
