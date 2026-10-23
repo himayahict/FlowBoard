@@ -54,3 +54,11 @@ next-env.d.ts
 
 # Dashboard backup files
 /src/app/*backup*.tsx
+
+# Local FlowBoard recovery files
+/DashboardClient.active.tmp
+/DashboardClient.git-backup.tmp
+/src/app/DashboardClient.before-repair.tsx.bak
+/src/app/DashboardClient.drag-drop-recovery.tsx
+/flowboard-current-changes*.patch
+/backups/

@@ -20,10 +20,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const result = await authClient.signIn.email({
-        email,
-        password,
-      });
+      const result = await authClient.signIn.email({ email, password });
 
       if (result.error) {
         setError(result.error.message ?? "Login failed. Check your details.");
@@ -43,50 +40,36 @@ export default function LoginPage() {
     <main className="relative min-h-screen bg-slate-50 text-slate-800 antialiased">
       <style jsx global>{`
         @keyframes fadeIn {
-          from {
-            opacity: 0;
-            transform: translateY(6px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
         }
-        .animate-fade-in {
-          animation: fadeIn 0.4s ease-out both;
-        }
+        .animate-fade-in { animation: fadeIn 0.4s ease-out both; }
         @keyframes float {
           0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-8px); }
+          50% { transform: translateY(-6px); }
         }
-        .animate-float {
-          animation: float 6s ease-in-out infinite;
-        }
+        .animate-float { animation: float 6s ease-in-out infinite; }
       `}</style>
 
       <div className="grid min-h-screen lg:grid-cols-2">
-        {/* LEFT: Branding panel */}
-        <div className="relative hidden overflow-hidden bg-slate-950 lg:flex lg:flex-col lg:justify-between">
-          {/* Gradient mesh background */}
-          <div className="pointer-events-none absolute inset-0">
-            <div className="absolute -top-40 -left-40 size-[500px] rounded-full bg-indigo-500/30 blur-[120px]" />
-            <div className="absolute top-1/3 -right-32 size-[400px] rounded-full bg-fuchsia-500/20 blur-[120px]" />
-            <div className="absolute bottom-0 left-1/4 size-[400px] rounded-full bg-cyan-500/20 blur-[120px]" />
-          </div>
-
+        {/* LEFT: Branding panel — neutral, editorial */}
+        <div className="relative hidden overflow-hidden bg-slate-900 lg:flex lg:flex-col lg:justify-between">
           {/* Subtle grid pattern */}
           <div
-            className="pointer-events-none absolute inset-0 opacity-[0.03]"
+            className="pointer-events-none absolute inset-0 opacity-[0.04]"
             style={{
               backgroundImage:
                 "linear-gradient(to right, white 1px, transparent 1px), linear-gradient(to bottom, white 1px, transparent 1px)",
               backgroundSize: "48px 48px",
             }}
           />
+          {/* Soft radial glow — monochrome */}
+          <div className="pointer-events-none absolute -top-40 -left-40 size-[500px] rounded-full bg-white/[0.04] blur-[120px]" />
+          <div className="pointer-events-none absolute bottom-0 right-0 size-[400px] rounded-full bg-white/[0.03] blur-[120px]" />
 
           {/* Brand */}
           <div className="relative z-10 flex items-center gap-3 p-10">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/40">
+            <div className="flex size-10 items-center justify-center rounded-xl bg-white text-slate-900 shadow-sm">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -94,7 +77,7 @@ export default function LoginPage() {
                 strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className="size-5 text-white"
+                className="size-5"
               >
                 <rect x="3" y="3" width="7" height="9" rx="1.5" />
                 <rect x="14" y="3" width="7" height="5" rx="1.5" />
@@ -103,12 +86,8 @@ export default function LoginPage() {
               </svg>
             </div>
             <div>
-              <h1 className="text-base font-semibold tracking-tight text-white">
-                FlowBoard
-              </h1>
-              <p className="text-[10px] font-medium uppercase tracking-widest text-white/40">
-                Workspace
-              </p>
+              <h1 className="text-base font-semibold tracking-tight text-white">FlowBoard</h1>
+              <p className="text-[10px] font-medium uppercase tracking-widest text-white/40">Workspace</p>
             </div>
           </div>
 
@@ -125,8 +104,7 @@ export default function LoginPage() {
               you left off.
             </h2>
             <p className="mt-3 max-w-md text-sm leading-relaxed text-white/60">
-              Sign in to access your boards, projects, and team — all in one
-              beautiful workspace.
+              Sign in to access your boards, projects, and team — all in one beautiful workspace.
             </p>
 
             {/* Stats row */}
@@ -153,13 +131,12 @@ export default function LoginPage() {
           <div className="relative z-10 p-10">
             <div className="animate-float rounded-2xl border border-white/10 bg-white/[0.04] p-5 backdrop-blur-sm">
               <div className="flex items-start gap-3">
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-xs font-semibold text-white">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white ring-1 ring-inset ring-white/15">
                   MK
                 </div>
                 <div>
                   <p className="text-sm leading-relaxed text-white/80">
-                    &ldquo;The cleanest project tool I&apos;ve used. Our
-                    standups take half the time now.&rdquo;
+                    &ldquo;The cleanest project tool I&apos;ve used. Our standups take half the time now.&rdquo;
                   </p>
                   <p className="mt-2 text-xs font-medium text-white/50">
                     Maya Khan · Engineering Manager
@@ -175,7 +152,7 @@ export default function LoginPage() {
           <div className="mx-auto w-full max-w-sm animate-fade-in">
             {/* Mobile brand */}
             <div className="mb-8 flex items-center gap-3 lg:hidden">
-              <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-md shadow-indigo-500/25">
+              <div className="flex size-9 items-center justify-center rounded-xl bg-slate-900 text-white shadow-sm">
                 <svg
                   viewBox="0 0 24 24"
                   fill="none"
@@ -183,7 +160,7 @@ export default function LoginPage() {
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className="size-4 text-white"
+                  className="size-4"
                 >
                   <rect x="3" y="3" width="7" height="9" rx="1.5" />
                   <rect x="14" y="3" width="7" height="5" rx="1.5" />
@@ -191,9 +168,7 @@ export default function LoginPage() {
                   <rect x="3" y="16" width="7" height="5" rx="1.5" />
                 </svg>
               </div>
-              <span className="text-sm font-semibold text-slate-900">
-                FlowBoard
-              </span>
+              <span className="text-sm font-semibold text-slate-900">FlowBoard</span>
             </div>
 
             {/* Heading */}
@@ -210,10 +185,7 @@ export default function LoginPage() {
             <form onSubmit={handleLogin} className="mt-8 space-y-4">
               {/* Email */}
               <div>
-                <label
-                  htmlFor="email"
-                  className="mb-1.5 block text-xs font-medium text-slate-700"
-                >
+                <label htmlFor="email" className="mb-1.5 block text-xs font-medium text-slate-700">
                   Email address
                 </label>
                 <div className="relative">
@@ -236,7 +208,7 @@ export default function LoginPage() {
                     autoComplete="email"
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
-                    className="w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+                    className="w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
                     placeholder="you@example.com"
                   />
                 </div>
@@ -245,15 +217,12 @@ export default function LoginPage() {
               {/* Password */}
               <div>
                 <div className="mb-1.5 flex items-center justify-between">
-                  <label
-                    htmlFor="password"
-                    className="block text-xs font-medium text-slate-700"
-                  >
+                  <label htmlFor="password" className="block text-xs font-medium text-slate-700">
                     Password
                   </label>
                   <a
                     href="#"
-                    className="text-[11px] font-medium text-indigo-600 hover:text-indigo-700 hover:underline"
+                    className="text-[11px] font-medium text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
                   >
                     Forgot?
                   </a>
@@ -268,14 +237,7 @@ export default function LoginPage() {
                     strokeLinejoin="round"
                     className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"
                   >
-                    <rect
-                      x="3"
-                      y="11"
-                      width="18"
-                      height="11"
-                      rx="2"
-                      ry="2"
-                    />
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                     <path d="M7 11V7a5 5 0 0110 0v4" />
                   </svg>
                   <input
@@ -285,15 +247,13 @@ export default function LoginPage() {
                     autoComplete="current-password"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
-                    className="w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-10 pr-10 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+                    className="w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-10 pr-10 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
                     placeholder="Your password"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
-                    aria-label={
-                      showPassword ? "Hide password" : "Show password"
-                    }
+                    aria-label={showPassword ? "Hide password" : "Show password"}
                     className="absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
                   >
                     {showPassword ? (
@@ -332,12 +292,9 @@ export default function LoginPage() {
                 <input
                   id="remember"
                   type="checkbox"
-                  className="size-4 rounded border-slate-300 text-indigo-600 accent-indigo-600 focus:ring-2 focus:ring-indigo-500/30"
+                  className="size-4 rounded border-slate-300 text-slate-900 accent-slate-900 focus:ring-2 focus:ring-slate-300"
                 />
-                <label
-                  htmlFor="remember"
-                  className="text-xs text-slate-600"
-                >
+                <label htmlFor="remember" className="text-xs text-slate-600">
                   Keep me signed in
                 </label>
               </div>
@@ -366,29 +323,13 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-indigo-600/20 transition hover:bg-indigo-700 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading ? (
                   <>
-                    <svg
-                      className="size-4 animate-spin"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                    >
-                      <circle
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                        strokeOpacity="0.25"
-                      />
-                      <path
-                        d="M22 12a10 10 0 01-10 10"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                      />
+                    <svg className="size-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeOpacity="0.25" />
+                      <path d="M22 12a10 10 0 01-10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
                     </svg>
                     Signing in...
                   </>
@@ -411,7 +352,7 @@ export default function LoginPage() {
               Don&apos;t have an account?{" "}
               <Link
                 href="/register"
-                className="font-semibold text-indigo-600 hover:text-indigo-700 hover:underline"
+                className="font-semibold text-slate-900 underline-offset-2 hover:underline"
               >
                 Create account
               </Link>
