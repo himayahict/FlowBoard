@@ -12,7 +12,10 @@ export const auth = betterAuth({
     enabled: true,
   },
 
-  trustedOrigins: ["http://localhost:3000"],
+  trustedOrigins: [
+    "http://localhost:3000",
+    "https://flow-board-black.vercel.app",
+  ],
 });
 
 export default auth;
